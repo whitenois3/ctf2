@@ -4,14 +4,6 @@
 /// @author asnared <https://github.com/abigger87>
 /// @notice Non-instantiable module to add flashloan functionality to an ERC20
 
-/// TODO:
-/// - [ ] Flashloans are custodial at the moment, as this contract must hold the tokens that are
-///       to be loaned. The challenge would definitely be a bit more interesting if we went with
-///       the original implementation's non-custodial design, but we would need to make a modified
-///       token that has irrevocable approval to this contract *or* implement the flashloan logic
-///       into the ERC20 itself.
-/// - [ ] Design and implement attack vector.
-
 ////////////////////////////////////////////////////////////////
 //                         INTERFACE                          //
 ////////////////////////////////////////////////////////////////
@@ -83,17 +75,12 @@
 //                      INTERNAL MACROS                       //
 ////////////////////////////////////////////////////////////////
 
-/// @notice Locks the transient reentrancy mutex by placing the borrower's
-/// address in the slot.
+/// @notice Locks the transient reentrancy mutex by placing the borrower's address in the slot.
 /// @dev There is no need to zero-out the `MUTEX` slot because of EIP-1153!
 #define macro TSTORE_BORROWER() = takes (1) {
     // Input stack:             [borrower]
-
-    // TODO: huff-rs #218
-    // [MUTEX] tstore
-    [MUTEX] sstore
-
-    // Return stack:            []
+    // Output stack:            []
+    [MUTEX] tstore
 }
 
 /// @notice Reverts with the `RejectBorrower(string)` error if the condition
@@ -104,8 +91,10 @@
 ///    This value is intended to be 0x20, so if this macro is invoked in a position
 ///    where `msize != 0x20`, the revert data will be malformed.
 #define macro ASSERT_BORROWER() = takes (1) {
-    // Input stack:          // [condition]
+    // Input stack:             [condition]
+    // Output stack:            []
 
+    // Check if the input condition holds
     do_not_throw jumpi       // []
 
     // Store error selector and revert string in mem[0x1C:0x71]
@@ -120,15 +109,14 @@
     0x55 0x1C revert
 
     do_not_throw:
-
-    // Return stack:            []
 }
 
-/// @notice Reverts with the `OubstandingDebt(string)` error if the condition
-/// is false.
+/// @notice Reverts with `OubstandingDebt(string)` if the condition is false.
 #define macro ASSERT_BALANCE() = takes (1) {
     // Input stack:          // [condition]
+    // Output stack:            []
 
+    // Check the condition
     do_not_throw jumpi       // []
 
     // Store error selector and revert string in mem[0x1C:0x71]
@@ -143,21 +131,13 @@
     0x64 0x1C revert
 
     do_not_throw:
-
-    // Return stack:            []
 }
 
-/// @notice Retrieves this address' balance of an ERC-20 compliant token
-#define macro SELF_BALANCE_OF() = takes (1) returns (1) {
-    // Input stack:             [token]
-
-    __FUNC_SIG(balanceOf)    // [balanceOf_selector, token]
-    0x00 mstore              // [token]
-    address 0x20 mstore      // [token]
-    0x20 0x24 0x1C dup3      // [ret_size, args_offset, args_size, ret_offset, token]
-    swap4 gas staticcall     // [success]
-
-    // Return stack:            [success]
+/// @notice Retrieves an address' balance of an ERC-20 compliant token
+#define macro _BALANCE_OF() = takes (1) returns (1) {
+    // Input stack:                                    [account]
+    0x04 calldataload                               // [account]
+    [BALANCE_SLOT] LOAD_ELEMENT_FROM_KEYS(0x00)     // [balance]
 }
 
 ////////////////////////////////////////////////////////////////
@@ -167,9 +147,7 @@
 /// @notice Start a loan callframe.
 /// @param `fail` Jump label pointing to failure logic in the `MAIN` macro
 #define macro START_LOAN(fail) = {
-    // TODO: huff-rs #208
-    // caller [MUTEX] tstore
-    caller [MUTEX] sstore    // []
+    caller [MUTEX] tstore    // []
 
     // Hand control to the caller so they can start borrowing tokens
     __FUNC_SIG(bankroll)     // [bankroll_selector]
@@ -180,8 +158,7 @@
     // Revert if call to flash loan receiver failed
     iszero <fail> jumpi      // []
 
-    // TODO: tload
-    [BORROWS] sload          // [num_borrows]
+    [BORROWS] tload          // [num_borrows]
     0x02                     // [slot_idx, num_borrows]
     debt_collector:
         // Complete loop if all `Borrow`s have been accounted for.
@@ -193,13 +170,12 @@
         eq debt_collected jumpi
 
         // Get the `Borrow` struct from transient storage at slot_idx
-        // TODO: tload
-        dup1 sload           // [init_balance, slot_idx, num_borrows]
+        dup1 tload           // [init_balance, slot_idx, num_borrows]
         dup2 0x01 add sload  // [token, init_balance, slot_idx, num_borrows]
 
         // Get this contract's current balance of `token` and revert if the
         // `balanceOf` call fails
-        SELF_BALANCE_OF()    // [success, init_balance, slot_idx, num_borrows]
+        _BALANCE_OF()    // [success, init_balance, slot_idx, num_borrows]
         iszero <fail> jumpi  // [init_balance, slot_idx, num_borrows]
 
         // Assert that this contract's balance of `token` is >= to its initial balance
@@ -229,20 +205,17 @@
     dup4 shr                 // [to, amount, token, 0x60]
     swap3 pop                // [amount, token, to]
 
-    // TODO: huff-rs #218
-    // [MUTEX] tload         // [borrower, amount, token, to]
-    [MUTEX] sload            // [borrower, amount, token, to]
+    [MUTEX] tload            // [borrower, amount, token, to]
     caller eq                // [borrower == msg.sender, amount, token, to]
 
     // SAFETY: `msize = 0` at this invocation every time.
     ASSERT_BORROWER()        // [amount, token, to]
 
     // Update number of borrows
-    // TODO: tload / tstore
-    [BORROWS] sload          // [len(borrows), amount, token, to]
+    [BORROWS] tload          // [len(borrows), amount, token, to]
     dup1                     // [len(borrows), len(borrows), amount, token, to]
     0x01 add                 // [len(borrows) + 0x01, len(borrows), amount, token, to]
-    [BORROWS] sstore         // [len(borrows), amount, token, to]
+    [BORROWS] tstore         // [len(borrows), amount, token, to]
 
     // Get the start of the next available `Borrow` slot (64 bytes each)
     0x01 shl                 // [0x02 * len(borrows), amount, token, to]

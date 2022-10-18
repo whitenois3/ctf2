@@ -16,8 +16,25 @@ interface ITransientLoan {
 }
 
 contract TransientLoanTest is Test, IFlashLoanReceiver {
+
+    ////////////////////////////////////////////////////////////////
+    //                           STATE                            //
+    ////////////////////////////////////////////////////////////////
+
     ITransientLoan public flashLoaner;
     MockToken public mockToken;
+    bool public repayLoans;
+
+    ////////////////////////////////////////////////////////////////
+    //                           ERRORS                           //
+    ////////////////////////////////////////////////////////////////
+
+    error RejectBorrower(string);
+    error OutstandingDebt(string);
+
+    ////////////////////////////////////////////////////////////////
+    //                           TESTS                            //
+    ////////////////////////////////////////////////////////////////
 
     function setUp() public {
         // Deploy [TransientLoan] contract.
@@ -31,16 +48,30 @@ contract TransientLoanTest is Test, IFlashLoanReceiver {
     }
 
     function testLoan() public {
+        // We want to repay our loans
+        repayLoans = true;
+
         // Initialize a flash loan call frame
         // This contract's `bankroll` function will be called, and
-        // loans can be taken out within that contract.
+        // loans can be taken out within that callframe by this contract.
+        flashLoaner.startLoan();
+    }
+
+    function testLoanNoRepay() public {
+        // Initialize a flash loan call frame
+        // This contract's `bankroll` function will be called, and
+        // loans can be taken out within that callframe by this contract.
+
+        // This call will fail because we do not repay our loans.
+        vm.expectRevert(abi.encodeWithSelector(OutstandingDebt.selector, "Repay your debt!"));
         flashLoaner.startLoan();
     }
 
     function testFailBorrowNoLoan(uint256 amount) public {
         // Attempt to borrow from outside of an approved callframe
-        // Should revert
-        borrow(address(mockToken), amount, address(this));
+        // Should revert every time.
+        vm.expectRevert(abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
+        borrow(address(mockToken), amount, address(this), false);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -49,7 +80,7 @@ contract TransientLoanTest is Test, IFlashLoanReceiver {
 
     /// @notice Call the `borrow` function on the [TransientLoan] contract with
     /// packed calldata.
-    function borrow(address token, uint256 amount, address to) internal {
+    function borrow(address token, uint256 amount, address to, bool payBack) internal {
         (bool success,) = address(flashLoaner).call(abi.encodePacked(
             bytes4(flashLoaner.borrow.selector),
             token,
@@ -57,6 +88,11 @@ contract TransientLoanTest is Test, IFlashLoanReceiver {
             to
         ));
         assert(success);
+
+        // Optionally pay back our debt after borrowing.
+        if (payBack) {
+            mockToken.transfer(address(flashLoaner), amount);
+        }
     }
 
     ////////////////////////////////////////////////////////////////
@@ -66,6 +102,6 @@ contract TransientLoanTest is Test, IFlashLoanReceiver {
     /// @notice `IFlashLoanReceiver` implementation
     function bankroll() external {
         // Borrow some of the mock token
-        borrow(address(mockToken), 1 ether, address(this));
+        borrow(address(mockToken), 1 ether, address(this), repayLoans);
     }
 }

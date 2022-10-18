@@ -30,12 +30,10 @@
 /// Store at 1 byte before the desired destination of the string contents in memory.
 #define constant REJECT_BORROWER = 0x114e6f742074686520626f72726f77657221
 
-////////////////////////////////////////////////////////////////
-//                           ERRORS                           //
-////////////////////////////////////////////////////////////////
-
-/// @notice RejectBorrower error selector
-#define error RejectBorrower(string)
+/// @notice "Repay your debt!" string.
+/// @dev The length of the string (16 bytes) is prepended to the contents of the string.
+/// Store at 1 byte before the desired destination of the string contents in memory.
+#define constant REPAY_DEBT = 0x10526570617920796f7572206465627421
 
 ////////////////////////////////////////////////////////////////
 //                            MAIN                            //
@@ -82,13 +80,14 @@
     // Return stack:            []
 }
 
-/// @notice Reverts if `msg.sender` is not the transient borrower.
+/// @notice Reverts with the `RejectBorrower(string)` error if the condition
+/// is false.
 ///
 /// SAFETY:
 ///  - The `msize` opcode is used to set the value for a single byte at mem[0x23].
 ///    This value is intended to be 0x20, so if this macro is invoked in a position
 ///    where `msize != 0x20`, the revert data will be malformed.
-#define macro ASSERT_BORROWER() = takes (3) {
+#define macro ASSERT_BORROWER() = takes (1) {
     // Input stack:          // [condition]
 
     do_not_throw jumpi       // []
@@ -103,6 +102,29 @@
 
     // Revert with custom error
     0x55 0x1C revert
+
+    do_not_throw:
+
+    // Return stack:            []
+}
+
+/// @notice Reverts with the `OubstandingDebt(string)` error if the condition
+/// is false.
+#define macro ASSERT_BALANCE() = takes (1) {
+    // Input stack:          // [condition]
+
+    do_not_throw jumpi       // []
+
+    // Store error selector and revert string in mem[0x1C:0x71]
+    // OutstandingDebt(string)
+    0x17167f90               // [error_selector]
+    0x00 mstore              // []
+    0x20 dup1 mstore         // []
+    [REPAY_DEBT]             // [message]
+    0x50 mstore              // []
+
+    // Revert with custom error
+    0x64 0x1C revert
 
     do_not_throw:
 
@@ -146,9 +168,35 @@
     [BORROWS] sload          // [num_borrows]
     0x02                     // [slot_idx, num_borrows]
     debt_collector:
-        // TODO - Ensure all debt has been returned
+        // Complete loop if all `Borrow`s have been accounted for.
+        // We check at the beginning of the loop rather than the end in case 0 borrows have been
+        // taken out.
+        dup1                 // [slot_idx, slot_idx, num_borrows]
+        dup3 0x01 shl        // [num_borrows * 0x02, slot_idx, slot_idx, num_borrows]
+        0x02 add             // [num_borrows * 0x02 + 0x02, slot_idx, slot_idx, num_borrows]
+        eq debt_collected jumpi
 
-    stop
+        // Get the `Borrow` struct from transient storage at slot_idx
+        // TODO: tload
+        dup1 sload           // [init_balance, slot_idx, num_borrows]
+        dup2 0x01 add sload  // [token, init_balance, slot_idx, num_borrows]
+
+        // Get this contract's current balance of `token` and revert if the
+        // `balanceOf` call fails
+        SELF_BALANCE_OF()    // [success, init_balance, slot_idx, num_borrows]
+        iszero <fail> jumpi  // [init_balance, slot_idx, num_borrows]
+
+        // Assert that this contract's balance of `token` is >= to its initial balance
+        0x20 mload           // [token.balanceOf(address(this)), init_balance, slot_idx, num_borrows]
+        lt iszero            // [token.balanceOf(address(this)) >= init_balance, slot_idx, num_borrows]
+        ASSERT_BALANCE()     // [slot_idx, num_borrows]
+
+        // Move on to next `Borrow` slot
+        0x02 add             // [slot_idx + 0x02, num_borrows]
+        // Continue loop
+        debt_collector jump
+    debt_collected:
+        stop
 }
 
 /// @notice Can be called by the current `borrower` only.

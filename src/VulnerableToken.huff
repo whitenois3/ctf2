@@ -5,7 +5,7 @@
 /// @notice An EIP-1153 compliant CTF challenge
 
 // Imports
-#include "huffmate/utils/Errors.huff"
+#include "huffmate/utils/CommonErrors.huff"
 #include "huffmate/auth/NonPayable.huff"
 #include "huffmate/data-structures/Hashmap.huff"
 
@@ -23,5 +23,156 @@
 #define function transfer(address to, uint256 amount) nonpayable returns (bool)
 #define function transferFrom(address from, address to, uint256 amount) nonpayable returns (bool)
 
-// TODO: erc20 impl
+#define function decimals() nonpayable returns (uint256)
+#define function name() nonpayable returns (string)
+#define function symbol() nonpayable returns (string)
+
+// Custom Warden functions
+#define function toggle() nonpayable returns ()
+
+// Events
+#define event Approval(address indexed, address indexed, uint256)
+#define event Transfer(address, address, uint256)
+
+// "Whitenois3"
+#define constant META_NAME = 0x57686974656e6f69733300000000000000000000000000000000000000000000
+#define constant META_NAME_LENGTH = 0x0a
+
+// "WHTN"
+#define constant META_SYMBOL = 0x5748544e00000000000000000000000000000000000000000000000000000000
+#define constant META_SYMBOL_LENGTH = 0x04
+
+// "FROZEN"
+#define constant FROZEN_MESSAGE = 0x46524f5a454e0000000000000000000000000000000000000000000000000000
+#define constant FROZEN_MESSAGE_LENGTH = 0x06
+
+// Storage
+#define constant WARDEN = FREE_STORAGE_POINTER()
+#define constant FROZEN = FREE_STORAGE_POINTER()
+#define constant TOTAL_SUPPLY_SLOT = FREE_STORAGE_POINTER()
+#define constant BALANCE_SLOT = FREE_STORAGE_POINTER()
+#define constant APPROVAL_SLOT = FREE_STORAGE_POINTER()
+#define constant DECIMALS_SLOT = FREE_STORAGE_POINTER()
+
+// EIP-2612 STORAGE
+#define constant INITIAL_CHAIN_ID = FREE_STORAGE_POINTER()
+#define constant INITIAL_DOMAIN_SEPARATOR = FREE_STORAGE_POINTER()
+#define constant NONCE_SLOT = FREE_STORAGE_POINTER()
+
+// PERMIT_TYPEHASH = keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)")
+#define constant PERMIT_TYPEHASH = 0x6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9
+#define constant X_1901 = 0x1901000000000000000000000000000000000000000000000000000000000000
+
+// Utility Constants
+#define constant UINT_256_MAX = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+#define constant ERROR_SIG = 0x08c379a000000000000000000000000000000000000000000000000000000000
+#define constant ZERO_ADDRESS = 0x0000000000000000000000000000000000000000
+
+/// @notice Constructor
+/// @notice Sets the initial domain separator and chain ID
+#define macro ERC20_CONSTRUCTOR() = takes (0) returns (0) {
+    // Copy the decimals into memory from the bytecode
+    0x20                                    // [size] - byte size to copy
+    0x20 codesize sub                       // [offset, size] - offset in the code to copy from
+    0x00                                    // [mem, offset, size] - offset in memory to copy to
+    codecopy                                // []
+
+    // Save the caller as the warden
+    caller [WARDEN] sstore                  // []
+
+    // Copy the decimals from memory into the DECIMALS_SLOT storage location
+    0x00 mload                              // [decimals]
+    [DECIMALS_SLOT] sstore                  // []
+
+    chainid [INITIAL_CHAIN_ID] sstore       // []
+    COMPUTE_DOMAIN_SEPARATOR()              // [DOMAIN SEPARATOR]
+    [INITIAL_DOMAIN_SEPARATOR] sstore       // []
+}
+
+/// @notice Toggle
+/// @notice Allows the warden to freeze transfers
+#define macro TOGGLE() = takes (0) returns (0) {
+    // Ensure the caller is the warden
+    [WARDEN] sload                          // [warden]
+    caller eq warden_authed jumpi           // [isWarden]
+    UNAUTHORIZED(0x00)                      // _reverts_
+
+    warden_authed:
+
+    // Toggle the frozen state
+    [FROZEN] sload                         // [frozen]
+    not                                    // [!frozen]
+    [FROZEN] sstore                        // []
+}
+
+/// @notice Reverts with an "ZERO_ADDRESS" message if the condition is false
+#define macro ZERO_ADDRESS(condition) = takes (0) returns (0) {
+    [ZERO_ADDRESS_ERROR]            // ["ZERO_ADDRESS"]
+    [ZERO_ADDRESS_LENGTH]           // [12 (length), "ZERO_ADDRESS"]
+    <condition>                     // [condition, 12 (length), "ZERO_ADDRESS"]
+    REQUIRE()                       // []
+}
+
+/// @notice Not Frozen
+/// @notice Reverts if the contract is frozen
+#define macro NOT_FROZEN() = takes (0) returns (0) {
+    [FROZEN] sload                          // [frozen]
+    iszero not_frozen jumpi                 // []
+        [FROZEN_MESSAGE]                    // ["FROZEN"]
+        [FROZEN_MESSAGE_LENGTH]             // [6 (length), "FROZEN"]
+        0x00 REQUIRE()                      // _reverts_
+    not_frozen:
+}
+
+/// @notice Approve
+/// @notice Grants approval to an operator to transfer tokens on behalf of the sender.
+#define macro APPROVE() = takes (0) returns (0) {
+    NON_PAYABLE()                           // []
+
+    0x24 calldataload                       // [value]
+    0x04 calldataload                       // [to, value]
+    caller                                  // [from, to, value]
+    [APPROVAL_SLOT]                         // [slot, from, to, value]
+    STORE_ELEMENT_FROM_KEYS_2D(0x00)        // []
+
+    // Emit the Approval event
+    0x24 calldataload                       // [value]
+    0x00 mstore                             // []
+    0x04 calldataload                       // [to]
+    caller                                  // [from, to]
+    __EVENT_HASH(Approval)                  // [sig, from, to]
+    0x20 0x00                               // [0, 32, sig, from, to]
+    log3                                    // []
+
+    // Return 01 for true
+    0x01 0x00 mstore                        // []
+    0x20 0x00 return                        // []
+}
+
+/// @notice Transfer
+/// @notice Non-Payable function that transfers an amount of tokens from the sender to a recipient.
+#define macro TRANSFER() = takes (0) returns (0) {
+    NON_PAYABLE()
+    NOT_FROZEN()
+
+    // Setup the stack for the transfer function.
+    0x04 calldataload           // [to]
+    caller                      // [from, to]
+    0x24 calldataload           // [value, from, to]
+
+    // Update the balances of the sender and recipient.
+    _TRANSFER_TAKE_FROM()       // [value, from, to]
+    _TRANSFER_GIVE_TO()         // [value, from, to]
+
+    // Emit the transfer event.
+    0x00 mstore                 // [from, to]
+    __EVENT_HASH(Transfer)      // [sig, from, to]
+    0x20 0x00                   // [0, 32, sig, from, to]
+    log3                        // []
+
+    // Return "1" to represent a succesful transfer.
+    0x01 0x00 mstore            // []
+    0x20 0x00 return            // []
+}
+
 

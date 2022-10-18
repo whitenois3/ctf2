@@ -6,6 +6,7 @@ remappings = [
   'foundry-huff=lib/foundry-huff/src',
   'huffmate=lib/huffmate/src'
 ]
+ffi = true
 
 [fuzz]
 runs = 1028

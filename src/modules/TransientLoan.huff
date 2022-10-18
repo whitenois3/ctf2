@@ -10,7 +10,7 @@
 
 // TransientLoan.huff
 #define function startLoan() nonpayable returns ()
-#define function borrow(address from, address token, uint256 amount, address to) nonpayable returns ()
+#define function borrow(address from, uint256 amount, address to) nonpayable returns ()
 
 // IFlashLoanReceiver.sol
 #define function bankroll() nonpayable returns ()
@@ -158,8 +158,10 @@
     // Revert if call to flash loan receiver failed
     iszero <fail> jumpi      // []
 
+    // Load the number of borrowers
     [BORROWS] tload          // [num_borrows]
     0x02                     // [slot_idx, num_borrows]
+
     debt_collector:
         // Complete loop if all `Borrow`s have been accounted for.
         // We check at the beginning of the loop rather than the end in case 0 borrows have been
@@ -187,76 +189,48 @@
         0x02 add             // [slot_idx + 0x02, num_borrows]
         // Continue loop
         debt_collector jump
+
     debt_collected:
         stop
 }
 
 /// @notice Can be called by the current `borrower` only.
 /// @param `fail` Jump label pointing to failure logic in the `MAIN` macro
-/// @dev Accepts abi.encodePacked(address token, uint256 amount, address to)
-/// as the calldata.
 #define macro BORROW(fail) = {
     // Unpack calldata params
-    0x60                     // [0x60]
-    0x04 calldataload        // [cd[0x00:0x20], 0x60]
-    dup2 shr                 // [token, 0x60]
-    0x18 calldataload        // [amount, token, 0x60]
-    0x38 calldataload        // [cd[0x4C:0x6C], amount, token, 0x60]
-    dup4 shr                 // [to, amount, token, 0x60]
-    swap3 pop                // [amount, token, to]
+    0x04 calldataload        // [from]
+    0x24 calldataload        // [amount, from]
+    0x44 calldataload        // [to, amount, from]
 
-    [MUTEX] tload            // [borrower, amount, token, to]
-    caller eq                // [borrower == msg.sender, amount, token, to]
+    // Check that the caller is the current transient `borrower`
+    [MUTEX] tload            // [borrower, to, amount, from]
+    caller eq                // [borrower == msg.sender, to, amount, from]
 
     // SAFETY: `msize = 0` at this invocation every time.
-    ASSERT_BORROWER()        // [amount, token, to]
+    ASSERT_BORROWER()        // [to, amount, from]
 
     // Update number of borrows
-    [BORROWS] tload          // [len(borrows), amount, token, to]
-    dup1                     // [len(borrows), len(borrows), amount, token, to]
-    0x01 add                 // [len(borrows) + 0x01, len(borrows), amount, token, to]
-    [BORROWS] tstore         // [len(borrows), amount, token, to]
+    [BORROWS] tload          // [len(borrows), to, amount, from]
+    dup1                     // [len(borrows), len(borrows), to, amount, from]
+    0x01 add                 // [len(borrows) + 0x01, len(borrows), to, amount, from]
+    [BORROWS] tstore         // [len(borrows), to, amount, from]
 
     // Get the start of the next available `Borrow` slot (64 bytes each)
-    0x01 shl                 // [0x02 * len(borrows), amount, token, to]
-    0x02 add                 // [0x02 * len(borrows) + 0x02, amount, token, to]
+    0x02 shl                 // [0x02 * len(borrows), to, amount, from]
+    0x02 add                 // [0x02 * len(borrows) + 0x02, to, amount, from]
 
     // Get this contract's balance of the requested token
-    dup3 SELF_BALANCE_OF()   // [success, borrow_slot_start, amount, token, to]
+    dup4 _BALANCE_OF()       // [balance, borrow_slot_start, to, amount, from]
 
-    // Revert if `balanceOf` call failed
-    // TODO: Maybe ensure the balance is > 0 too? Not really necessary, tho.
-    iszero <fail> jumpi      // [borrow_slot_start, amount, token, to]
-
-    // Store `Balance` struct in transient storage array
-    // TODO: tstore
-    0x20 mload               // [initial_balance, borrow_slot_start, amount, token, to]
-    dup2 sstore              // [borrow_slot_start, amount, token, to]
-    dup3 swap1 0x01 add      // [borrow_slot_start + 0x01, token, amount, token, to]
-    sstore                   // [amount, token, to]
+    // Store `Borrow` struct in transient storage array
+    dup2 tstore              // [borrow_slot_start, to, amount, from]
+    dup4 swap1 tstore        // [to, amount, from]
+    // NOTE: we don't need to store the `token` address in transient storage because it is address(this)
 
     // Call `transfer` on target token
-    TRANSFER_FROM_INTERNAL()
-    // __FUNC_SIG(transferFrom) // [transfer_selector, amount, token, to]
-    // 0x00 mstore              // [amount, token, to]
-    // 0x40 mstore              // [token, to]
-    // swap1 0x20 mstore        // [token]
-    // 0x00 dup1 0x44 0x1C dup3 // [value, args_offset, args_size, ret_offset, ret_size, token]
-    // dup6 gas call            // [success, token]
-
-    // Revert if `transfer` call failed
-    iszero <fail> jumpi      // [token]
+    // Transfer - takes:        [value, from, to]
+    swap2 swap1              // [amount, from, to]
+    _INTERNAL_TRANSFER()     // [amount, from, to]
 
     stop
 }
-
-/// @notice Transfers amount of token from this contract to the `to` address.
-/// @notice Since this is internal (this logic is inside an ERC20 token), we don't have to [call]
-#define macro TRANSFER_FROM_INTERNAL() = takes (4) returns (1) {
-    // Input Stack: [from, token, amount, to]
-    // Output Stack: [success]
-
-    // TODO:
-}
-
-

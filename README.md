@@ -4,8 +4,6 @@
 
 Whitenoise CTF II: Tempestuous Transience
 
-_Venture into the cross-chain world._
-
 ### Exploit
 
 _TODO_

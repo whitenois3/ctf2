@@ -1,6 +1,6 @@
-name: test
+name: ci
 
-on: workflow_dispatch
+on: [push]
 
 env:
   FOUNDRY_PROFILE: ci
@@ -22,13 +22,15 @@ jobs:
         with:
           version: nightly
 
+      - name: Install Huff
+        uses: huff-language/huff-toolchain@v2
+        with:
+          version: nightly
+
       - name: Run Forge build
-        run: |
-          forge --version
-          forge build --sizes
+        run: forge build --sizes
         id: build
 
       - name: Run Forge tests
-        run: |
-          forge test -vvv
+        run: forge test -vvv
         id: test

@@ -6,8 +6,8 @@
 
 // TODO: Add interest bearing calculations
 
-
 // Imports
+#include "./modules/TransientLoan.huff"
 #include "huffmate/utils/CommonErrors.huff"
 #include "huffmate/auth/NonPayable.huff"
 #include "huffmate/data-structures/Hashmap.huff"
@@ -73,7 +73,7 @@
 
 /// @notice Constructor
 /// @notice Sets the initial domain separator and chain ID
-#define macro ERC20_CONSTRUCTOR() = takes (0) returns (0) {
+#define macro CONSTRUCTOR() = takes (0) returns (0) {
     // Copy the decimals into memory from the bytecode
     0x20                                    // [size] - byte size to copy
     0x20 codesize sub                       // [offset, size] - offset in the code to copy from
@@ -167,15 +167,7 @@
     caller                                  // [from, to]
     0x24 calldataload                       // [value, from, to]
 
-    // Update the balances of the sender and recipient.
-    _TRANSFER_TAKE_FROM()                   // [value, from, to]
-    _TRANSFER_GIVE_TO()                     // [value, from, to]
-
-    // Emit the transfer event.
-    0x00 mstore                             // [from, to]
-    __EVENT_HASH(Transfer)                  // [sig, from, to]
-    0x20 0x00                               // [0, 32, sig, from, to]
-    log3                                    // []
+    _INTERNAL_TRANSFER()                    // []
 
     // Return "1" to represent a succesful transfer.
     0x01 0x00 mstore                        // []
@@ -232,15 +224,7 @@
     approved2:                              // [from, to]
         0x44 calldataload                   // [value, from, to]
 
-        // Update the balances of the sender and recipient.
-        _TRANSFER_TAKE_FROM()               // [value, from, to]
-        _TRANSFER_GIVE_TO()                 // [value, from, to]
-
-        // Emit the transfer event.
-        0x00 mstore                         // [from, to]
-        __EVENT_HASH(Transfer)              // [sig, from, to]
-        0x20 0x00                           // [0, 32, sig, from, to]
-        log3                                // []
+        _INTERNAL_TRANSFER()                // []
 
         // Return "1" to represent a succesful transfer.
         0x01 0x00 mstore                    // []
@@ -248,6 +232,23 @@
 
     insufficientApproval:
         0x00 0x00 revert                    // []
+}
+
+/// @notice Internal Transfer
+#define macro _INTERNAL_TRANSFER() = takes (3) returns (0) {
+    // Input Stack:                     // [value, from, to]
+
+    // TODO: Claim interest
+
+    // Update the balances of the sender and recipient.
+    _TRANSFER_TAKE_FROM()               // [value, from, to]
+    _TRANSFER_GIVE_TO()                 // [value, from, to]
+
+    // Emit the transfer event.
+    0x00 mstore                         // [from, to]
+    __EVENT_HASH(Transfer)              // [sig, from, to]
+    0x20 0x00                           // [0, 32, sig, from, to]
+    log3                                // []
 }
 
 /// @notice Transfers an amount of tokens from
@@ -586,29 +587,35 @@
 }
 
 
-// Function Dispatching
-#define macro ERC20_MAIN() = takes (1) returns (1) {
+/// @notice Main Execution Entrypoint
+/// @notice Dispatches function calls based on the 4byte selector located @ calldata[0x00:0x04]
+#define macro MAIN() = {
     // Identify which function is being called.
-    // [func sig]
+    pc calldataload 0xE0 shr                                                // [selector]
 
-    dup1 __FUNC_SIG(permit)             eq permitJump           jumpi
-    dup1 __FUNC_SIG(nonces)             eq noncesJump           jumpi
+    // Call the TransientLoan function dispatch
+    TRANSIENT_LOAN_MAIN()                                                   // [selector]
 
-    dup1 __FUNC_SIG(name)               eq nameJump             jumpi
-    dup1 __FUNC_SIG(symbol)             eq symbolJump           jumpi
-    dup1 __FUNC_SIG(decimals)           eq decimalsJump         jumpi
-    dup1 __FUNC_SIG(DOMAIN_SEPARATOR)   eq domainSeparatorJump  jumpi
+    // Dispatch
+    dup1 __FUNC_SIG(permit)             eq permitJump           jumpi       // [selector]
+    dup1 __FUNC_SIG(nonces)             eq noncesJump           jumpi       // [selector]
 
-    dup1 __FUNC_SIG(totalSupply)        eq totalSupplyJump      jumpi
-    dup1 __FUNC_SIG(balanceOf)          eq balanceOfJump        jumpi
-    dup1 __FUNC_SIG(allowance)          eq allowanceJump        jumpi
+    dup1 __FUNC_SIG(name)               eq nameJump             jumpi       // [selector]
+    dup1 __FUNC_SIG(symbol)             eq symbolJump           jumpi       // [selector]
+    dup1 __FUNC_SIG(decimals)           eq decimalsJump         jumpi       // [selector]
+    dup1 __FUNC_SIG(DOMAIN_SEPARATOR)   eq domainSeparatorJump  jumpi       // [selector]
 
-    dup1 __FUNC_SIG(transfer)           eq transferJump         jumpi
-    dup1 __FUNC_SIG(transferFrom)       eq transferFromJump     jumpi
-    dup1 __FUNC_SIG(approve)            eq approveJump          jumpi
+    dup1 __FUNC_SIG(totalSupply)        eq totalSupplyJump      jumpi       // [selector]
+    dup1 __FUNC_SIG(balanceOf)          eq balanceOfJump        jumpi       // [selector]
+    dup1 __FUNC_SIG(allowance)          eq allowanceJump        jumpi       // [selector]
 
-    // Bubble up to the parent macro
-    no_match jumpi
+    dup1 __FUNC_SIG(transfer)           eq transferJump         jumpi       // [selector]
+    dup1 __FUNC_SIG(transferFrom)       eq transferFromJump     jumpi       // [selector]
+    dup1 __FUNC_SIG(approve)            eq approveJump          jumpi       // [selector]
+
+    dup1 __FUNC_SIG(toggle)             eq toggleJump           jumpi       // [selector]
+
+    0x00 dup1 revert
 
     allowanceJump:
         ALLOWANCE()
@@ -634,6 +641,6 @@
         TRANSFER_FROM()
     transferJump:
         TRANSFER()
-
-    no_match:
+    toggleJump:
+        TOGGLE()
 }

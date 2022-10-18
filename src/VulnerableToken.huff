@@ -1,0 +1,27 @@
+/// @title Vulnerable Token Contract
+/// @notice SPDX-License-Identifier: MIT
+/// @author clabby <https://github.com/clabby>
+/// @author asnared <https://github.com/abigger87>
+/// @notice An EIP-1153 compliant CTF challenge
+
+// Imports
+#include "huffmate/utils/Errors.huff"
+#include "huffmate/auth/NonPayable.huff"
+#include "huffmate/data-structures/Hashmap.huff"
+
+// ERC20 Interface
+#define function approve(address,uint256) nonpayable returns ()
+#define function allowance(address,address) view returns (uint256)
+#define function permit(address,address,uint256,uint256,uint8,bytes32,bytes32) nonpayable returns ()
+
+#define function DOMAIN_SEPARATOR() view returns (bytes32)
+#define function nonces(address) view returns (uint256)
+
+#define function balanceOf(address) view returns (uint256)
+#define function totalSupply() view returns (uint256)
+
+#define function transfer(address to, uint256 amount) nonpayable returns (bool)
+#define function transferFrom(address from, address to, uint256 amount) nonpayable returns (bool)
+
+// TODO: erc20 impl
+

@@ -30,6 +30,7 @@
 
 // Custom Warden functions
 #define function toggle() nonpayable returns ()
+#define function frozen() view returns (bool)
 #define function warden() nonpayable returns (address)
 
 // Custom Harvesting Functions
@@ -129,8 +130,15 @@
 
     // Toggle the frozen state
     [FROZEN] sload                         // [frozen]
-    not                                    // [!frozen]
+    iszero                                 // [!frozen]
     [FROZEN] sstore                        // []
+}
+
+/// @notice Returns if the contract is frozen
+#define macro GET_FROZEN() = {
+    [FROZEN] sload                         // [frozen]
+    0x00 mstore
+    0x20 0x00 return
 }
 
 /// @notice Reverts with an "ZERO_ADDRESS" message if the condition is false
@@ -692,7 +700,7 @@
 #define macro _INTERNAL_MINT() = takes (2) returns (0) {
     // Cannot mint more than the maximum supply
     dup1 [TOTAL_SUPPLY_SLOT] sload add  // [newTotalSupply, value, to]
-    [MAX_SUPPLY] sload                  // [maxSupply, newTotalSupply, value, to]
+    [MAX_SUPPLY]                        // [maxSupply, newTotalSupply, value, to]
     gt supplyWithinConstraint jumpi     // [value, to]
         MAX_SUPPLY(0x00)                // _reverts_
     supplyWithinConstraint:
@@ -744,6 +752,7 @@
     dup1 __FUNC_SIG(approve)            eq approveJump          jumpi       // [selector]
 
     dup1 __FUNC_SIG(toggle)             eq toggleJump           jumpi       // [selector]
+    dup1 __FUNC_SIG(frozen)             eq frozenJump           jumpi       // [selector]
     dup1 __FUNC_SIG(warden)             eq wardenJump           jumpi       // [selector]
 
     dup1 __FUNC_SIG(harvestable)        eq harvestableJump      jumpi       // [selector]
@@ -764,6 +773,7 @@
     transferFromJump: TRANSFER_FROM()
     transferJump: TRANSFER()
     toggleJump: TOGGLE()
+    frozenJump: GET_FROZEN()
     wardenJump: GET_WARDEN()
     harvestableJump: HARVESTABLE()
     harvestJump: HARVEST()

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import { IERC20 } from "src/IERC20.sol";
-import { ITransientLoan } from "src/ITransientLoan.sol";
-import { IFlashLoanReceiver } from "src/IFlashLoanReceiver.sol";
+import { IERC20 } from "src/interfaces/IERC20.sol";
+import { ITransientLoan } from "src/interfaces/ITransientLoan.sol";
+import { IFlashLoanReceiver } from "src/interfaces/IFlashLoanReceiver.sol";
 
 contract Borrower is IFlashLoanReceiver {
 

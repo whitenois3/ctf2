@@ -4,15 +4,19 @@ pragma solidity ^0.8.15;
 import "forge-std/Test.sol";
 import "foundry-huff/HuffDeployer.sol";
 
-import { IERC20 } from "src/IERC20.sol";
 import { Borrower } from "./mocks/Borrower.sol";
-import { ITransientLoan } from "src/ITransientLoan.sol";
-import { IFlashLoanReceiver } from "src/IFlashLoanReceiver.sol";
+
+import { IERC20 } from "src/interfaces/IERC20.sol";
+import { ITransientLoan } from "src/interfaces/ITransientLoan.sol";
+import { IFlashLoanReceiver } from "src/interfaces/IFlashLoanReceiver.sol";
 
 /// @notice Challenge contract interface
 interface IChallenge is IERC20, ITransientLoan {
     /// @notice Allows the warden to freeze the token
     function toggle() external;
+
+    /// @notice Returns if the challenge is frozen
+    function frozen() external view returns (bool);
 
     /// @notice Returns the given warden
     function warden() external returns (address);
@@ -65,15 +69,21 @@ contract VulnerableTokenTest is Test {
 
     /// @notice test warden can freeze transfers
     function testFreezeContract() public {
-
+        // The warden can freeze the contract
+        assertFalse(challenge.frozen());
+        vm.prank(target);
+        challenge.toggle();
+        assertTrue(challenge.frozen());
     }
 
     /// @notice Test harvesting
     function testHarvesting() public {
         // Initially the amount harvestable should be 0 as no time has passed
+        assertEq(block.timestamp, 1);
         assertEq(challenge.harvestable(target), 0);
 
         // Warp the vm to one period
+        vm.warp(2 days);
         assertEq(challenge.harvestable(target), 0);
     }
 

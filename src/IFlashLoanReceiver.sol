@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.17;
+pragma solidity ^0.8.15;
 
 /// @title IFlashLoanReceiver
 /// @notice Interface for contracts that wish to receive flashloans from a [TransientLoan] contract.

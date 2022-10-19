@@ -113,7 +113,7 @@
 
 /// @notice Reverts with `OubstandingDebt(string)` if the condition is false.
 #define macro ASSERT_BALANCE() = takes (1) {
-    // Input stack:          // [condition]
+    // Input stack:             [condition]
     // Output stack:            []
 
     // Check the condition
@@ -136,7 +136,6 @@
 /// @notice Retrieves an address' balance of an ERC-20 compliant token
 #define macro _BALANCE_OF() = takes (1) returns (1) {
     // Input stack:                                    [account]
-    0x04 calldataload                               // [account]
     [BALANCE_SLOT] LOAD_ELEMENT_FROM_KEYS(0x00)     // [balance]
 }
 
@@ -147,6 +146,7 @@
 /// @notice Start a loan callframe.
 /// @param `fail` Jump label pointing to failure logic in the `MAIN` macro
 #define macro START_LOAN(fail) = {
+    // Transcend the caller as the `borrower`
     caller [MUTEX] tstore    // []
 
     // Hand control to the caller so they can start borrowing tokens
@@ -162,10 +162,9 @@
     [BORROWS] tload          // [num_borrows]
     0x02                     // [slot_idx, num_borrows]
 
+    // Complete loop if all `Borrow`s have been accounted for.
+    // We check at the beginning of the loop in case 0 borrows have been made.
     debt_collector:
-        // Complete loop if all `Borrow`s have been accounted for.
-        // We check at the beginning of the loop rather than the end in case 0 borrows have been
-        // taken out.
         dup1                 // [slot_idx, slot_idx, num_borrows]
         dup3 0x01 shl        // [num_borrows * 0x02, slot_idx, slot_idx, num_borrows]
         0x02 add             // [num_borrows * 0x02 + 0x02, slot_idx, slot_idx, num_borrows]
@@ -173,21 +172,15 @@
 
         // Get the `Borrow` struct from transient storage at slot_idx
         dup1 tload           // [init_balance, slot_idx, num_borrows]
-        dup2 0x01 add sload  // [token, init_balance, slot_idx, num_borrows]
+        dup2 0x01 add tload  // [from, init_balance, slot_idx, num_borrows]
 
-        // Get this contract's current balance of `token` and revert if the
-        // `balanceOf` call fails
-        _BALANCE_OF()    // [success, init_balance, slot_idx, num_borrows]
-        iszero <fail> jumpi  // [init_balance, slot_idx, num_borrows]
-
-        // Assert that this contract's balance of `token` is >= to its initial balance
-        0x20 mload           // [token.balanceOf(address(this)), init_balance, slot_idx, num_borrows]
-        lt iszero            // [token.balanceOf(address(this)) >= init_balance, slot_idx, num_borrows]
+        // Assert that the from balance is >= to its initial balance
+        _BALANCE_OF()        // [balance, init_balance, slot_idx, num_borrows]
+        swap1 lt             // [init_balance <= balance, slot_idx, num_borrows]
         ASSERT_BALANCE()     // [slot_idx, num_borrows]
 
         // Move on to next `Borrow` slot
         0x02 add             // [slot_idx + 0x02, num_borrows]
-        // Continue loop
         debt_collector jump
 
     debt_collected:

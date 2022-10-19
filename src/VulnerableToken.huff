@@ -32,6 +32,7 @@
 
 // Custom Warden functions
 #define function toggle() nonpayable returns ()
+#define function warden() nonpayable returns (address)
 
 // Events
 #define event Approval(address indexed, address indexed, uint256)
@@ -76,20 +77,27 @@
 #define macro CONSTRUCTOR() = takes (0) returns (0) {
     // Copy the decimals into memory from the bytecode
     0x20                                    // [size] - byte size to copy
+    0x40 codesize sub                       // [offset, size] - offset in the code to copy from
+    0x00                                    // [mem, offset, size] - offset in memory to copy to
+    codecopy                                // []
+
+    // Copy the decimals from memory into the DECIMALS_SLOT storage location
+    0x00 mload                              // [decimals]
+    [DECIMALS_SLOT] sstore                  // []
+
+    // Copy the warden into memory from the bytecode
+    0x20                                    // [size] - byte size to copy
     0x20 codesize sub                       // [offset, size] - offset in the code to copy from
     0x00                                    // [mem, offset, size] - offset in memory to copy to
     codecopy                                // []
 
     // Save the caller as the warden
-    caller [WARDEN] sstore                  // []
+    0x00 mload dup1                         // [warden, warden]
+    [WARDEN] sstore                         // [warden]
 
     // Mint the warden an initial supply
-    caller 0x100000                         // [amount, to]
+    0x100000                                // [amount, to]
     _MINT()                                 // []
-
-    // Copy the decimals from memory into the DECIMALS_SLOT storage location
-    0x00 mload                              // [decimals]
-    [DECIMALS_SLOT] sstore                  // []
 
     chainid [INITIAL_CHAIN_ID] sstore       // []
     COMPUTE_DOMAIN_SEPARATOR()              // [DOMAIN SEPARATOR]
@@ -514,6 +522,15 @@
     0x60 0x00 return                    // []
 }
 
+/// @notice Warden
+/// @notice Returns the configured warden
+#define macro GET_WARDEN() = takes (0) returns (0) {
+    NON_PAYABLE()                       // []
+    [WARDEN] sload 0x00 mstore          // []
+    0x20 0x00 return                    // []
+}
+
+
 /// @notice Symbol
 /// @notice Returns the symbol of the token
 #define macro SYMBOL() = takes (0) returns (0) {
@@ -614,33 +631,22 @@
     dup1 __FUNC_SIG(approve)            eq approveJump          jumpi       // [selector]
 
     dup1 __FUNC_SIG(toggle)             eq toggleJump           jumpi       // [selector]
+    dup1 __FUNC_SIG(warden)             eq wardenJump           jumpi       // [selector]
 
     0x00 dup1 revert
 
-    allowanceJump:
-        ALLOWANCE()
-    approveJump:
-        APPROVE()
-    balanceOfJump:
-        BALANCE_OF()
-    decimalsJump:
-        DECIMALS()
-    domainSeparatorJump:
-        DOMAIN_SEPARATOR()
-    nameJump:
-        NAME()
-    noncesJump:
-        NONCES()
-    permitJump:
-        PERMIT()
-    symbolJump:
-        SYMBOL()
-    totalSupplyJump:
-        TOTAL_SUPPLY()
-    transferFromJump:
-        TRANSFER_FROM()
-    transferJump:
-        TRANSFER()
-    toggleJump:
-        TOGGLE()
+    allowanceJump: ALLOWANCE()
+    approveJump: APPROVE()
+    balanceOfJump: BALANCE_OF()
+    decimalsJump: DECIMALS()
+    domainSeparatorJump: DOMAIN_SEPARATOR()
+    nameJump: NAME()
+    noncesJump: NONCES()
+    permitJump: PERMIT()
+    symbolJump: SYMBOL()
+    totalSupplyJump: TOTAL_SUPPLY()
+    transferFromJump: TRANSFER_FROM()
+    transferJump: TRANSFER()
+    toggleJump: TOGGLE()
+    wardenJump: GET_WARDEN()
 }

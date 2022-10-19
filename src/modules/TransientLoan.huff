@@ -1,0 +1,229 @@
+/// @title EIP-1153 Non-Custodial Flashloans
+/// @notice SPDX-License-Identifier: MIT
+/// @author clabby <https://github.com/clabby>
+/// @author asnared <https://github.com/abigger87>
+/// @notice Non-instantiable module to add flashloan functionality to an ERC20
+
+////////////////////////////////////////////////////////////////
+//                         INTERFACE                          //
+////////////////////////////////////////////////////////////////
+
+// TransientLoan.huff
+#define function startLoan() nonpayable returns ()
+#define function borrow(address from, uint256 amount, address to) nonpayable returns ()
+
+// IFlashLoanReceiver.sol
+#define function bankroll() nonpayable returns ()
+
+// ERC-20 functions
+#define function balanceOf(address addr) view returns (uint256)
+#define function transferFrom(address from, address to, uint256 amount) nonpayable returns (bool)
+
+////////////////////////////////////////////////////////////////
+//                         CONSTANTS                          //
+////////////////////////////////////////////////////////////////
+
+/// @notice Transient storage slot for the reentrancy mutex
+#define constant MUTEX = FREE_STORAGE_POINTER()
+
+/// @notice The slot for the length of the `borrows` array in transient storage
+/// @dev The `borrows` array contains elements that are 64 bytes in size. The first
+/// slot begins at this value + 1.
+#define constant BORROWS = FREE_STORAGE_POINTER()
+
+/// @notice "Not the borrower!" string.
+/// @dev The length of the string (17 bytes) is prepended to the contents of the string.
+/// Store at 1 byte before the desired destination of the string contents in memory.
+#define constant REJECT_BORROWER = 0x114e6f742074686520626f72726f77657221
+
+/// @notice "Repay your debt!" string.
+/// @dev The length of the string (16 bytes) is prepended to the contents of the string.
+/// Store at 1 byte before the desired destination of the string contents in memory.
+#define constant REPAY_DEBT = 0x10526570617920796f7572206465627421
+
+////////////////////////////////////////////////////////////////
+//                            MAIN                            //
+////////////////////////////////////////////////////////////////
+
+/// @notice TransientLoan Dispatcher
+#define macro TRANSIENT_LOAN_MAIN() = takes (1) returns (1) {
+    // Input Stack: [selector]
+    // Output Stack: [selector]
+
+    dup1 __FUNC_SIG(borrow)    eq borrow     jumpi      // [selector]
+    dup1 __FUNC_SIG(startLoan) eq start_loan jumpi      // [selector]
+
+    // Bubble up to parent if no function selector matches
+    bubble_up jump                                      // []
+
+    borrow:
+        BORROW(fail)
+    start_loan:
+        START_LOAN(fail)
+    fail:
+        // Bubble up revert message from call (if there is any)
+        returndatasize                                  // [returndatasize]
+        dup1                                            // [returndatasize, returndatasize]
+        0x00 dup1                                       // [0x00, 0x00, returndatasize, returndatasize]
+        returndatacopy                                  // [returndatasize]
+        0x00 revert                                     // []
+
+    bubble_up:
+}
+
+////////////////////////////////////////////////////////////////
+//                      INTERNAL MACROS                       //
+////////////////////////////////////////////////////////////////
+
+/// @notice Locks the transient reentrancy mutex by placing the borrower's address in the slot.
+/// @dev There is no need to zero-out the `MUTEX` slot because of EIP-1153!
+#define macro TSTORE_BORROWER() = takes (1) {
+    // Input stack:             [borrower]
+    // Output stack:            []
+    [MUTEX] tstore
+}
+
+/// @notice Reverts with the `RejectBorrower(string)` error if the condition
+/// is false.
+///
+/// SAFETY:
+///  - The `msize` opcode is used to set the value for a single byte at mem[0x23].
+///    This value is intended to be 0x20, so if this macro is invoked in a position
+///    where `msize != 0x20`, the revert data will be malformed.
+#define macro ASSERT_BORROWER() = takes (1) {
+    // Input stack:             [condition]
+    // Output stack:            []
+
+    // Check if the input condition holds
+    do_not_throw jumpi       // []
+
+    // Store error selector and revert string in mem[0x1C:0x71]
+    // RejectBorrower(string)
+    0x5205e60e               // [error_selector]
+    0x00 mstore              // []
+    msize 0x3F mstore8       // []
+    [REJECT_BORROWER]        // [message]
+    0x51 mstore              // []
+
+    // Revert with custom error
+    0x55 0x1C revert
+
+    do_not_throw:
+}
+
+/// @notice Reverts with `OubstandingDebt(string)` if the condition is false.
+#define macro ASSERT_BALANCE() = takes (1) {
+    // Input stack:             [condition]
+    // Output stack:            []
+
+    // Check the condition
+    do_not_throw jumpi       // []
+
+    // Store error selector and revert string in mem[0x1C:0x71]
+    // OutstandingDebt(string)
+    0x17167f90               // [error_selector]
+    0x00 mstore              // []
+    0x20 dup1 mstore         // []
+    [REPAY_DEBT]             // [message]
+    0x50 mstore              // []
+
+    // Revert with custom error
+    0x64 0x1C revert
+
+    do_not_throw:
+}
+
+/// @notice Retrieves an address' balance of an ERC-20 compliant token
+#define macro _BALANCE_OF() = takes (1) returns (1) {
+    // Input stack:                                    [account]
+    [BALANCE_SLOT] LOAD_ELEMENT_FROM_KEYS(0x00)     // [balance]
+}
+
+////////////////////////////////////////////////////////////////
+//                      EXTERNAL MACROS                       //
+////////////////////////////////////////////////////////////////
+
+/// @notice Start a loan callframe.
+/// @param `fail` Jump label pointing to failure logic in the `MAIN` macro
+#define macro START_LOAN(fail) = {
+    // Transcend the caller as the `borrower`
+    caller [MUTEX] tstore    // []
+
+    // Hand control to the caller so they can start borrowing tokens
+    __FUNC_SIG(bankroll)     // [bankroll_selector]
+    0x00 mstore              // []
+    0x00 dup1 0x04 0x1C dup3 // [value, args_offset, args_size, ret_offset, ret_size]
+    caller gas call          // [success]
+
+    // Revert if call to flash loan receiver failed
+    iszero <fail> jumpi      // []
+
+    // Load the number of borrowers
+    [BORROWS] tload          // [num_borrows]
+    0x02                     // [slot_idx, num_borrows]
+
+    // Complete loop if all `Borrow`s have been accounted for.
+    // We check at the beginning of the loop in case 0 borrows have been made.
+    debt_collector:
+        dup1                 // [slot_idx, slot_idx, num_borrows]
+        dup3 0x01 shl        // [num_borrows * 0x02, slot_idx, slot_idx, num_borrows]
+        0x02 add             // [num_borrows * 0x02 + 0x02, slot_idx, slot_idx, num_borrows]
+        eq debt_collected jumpi
+
+        // Get the `Borrow` struct from transient storage at slot_idx
+        dup1 tload           // [init_balance, slot_idx, num_borrows]
+        dup2 0x01 add tload  // [from, init_balance, slot_idx, num_borrows]
+
+        // Assert that the from balance is >= to its initial balance
+        _BALANCE_OF()        // [balance, init_balance, slot_idx, num_borrows]
+        swap1 lt             // [init_balance <= balance, slot_idx, num_borrows]
+        ASSERT_BALANCE()     // [slot_idx, num_borrows]
+
+        // Move on to next `Borrow` slot
+        0x02 add             // [slot_idx + 0x02, num_borrows]
+        debt_collector jump
+
+    debt_collected:
+        stop
+}
+
+/// @notice Can be called by the current `borrower` only.
+/// @param `fail` Jump label pointing to failure logic in the `MAIN` macro
+#define macro BORROW(fail) = {
+    // Unpack calldata params
+    0x04 calldataload        // [from]
+    0x24 calldataload        // [amount, from]
+    0x44 calldataload        // [to, amount, from]
+
+    // Check that the caller is the current transient `borrower`
+    [MUTEX] tload            // [borrower, to, amount, from]
+    caller eq                // [borrower == msg.sender, to, amount, from]
+
+    // SAFETY: `msize = 0` at this invocation every time.
+    ASSERT_BORROWER()        // [to, amount, from]
+
+    // Update number of borrows
+    [BORROWS] tload          // [len(borrows), to, amount, from]
+    dup1                     // [len(borrows), len(borrows), to, amount, from]
+    0x01 add                 // [len(borrows) + 0x01, len(borrows), to, amount, from]
+    [BORROWS] tstore         // [len(borrows), to, amount, from]
+
+    // Get the start of the next available `Borrow` slot (64 bytes each)
+    0x02 shl                 // [0x02 * len(borrows), to, amount, from]
+    0x02 add                 // [0x02 * len(borrows) + 0x02, to, amount, from]
+
+    // Get this contract's balance of the requested token
+    dup4 _BALANCE_OF()       // [balance, borrow_slot_start, to, amount, from]
+
+    // Store `Borrow` struct in transient storage array
+    dup2 tstore              // [borrow_slot_start, to, amount, from]
+    dup4 swap1 tstore        // [to, amount, from]
+    // NOTE: we don't need to store the `token` address in transient storage because it is address(this)
+
+    // Call `transfer` on target token
+    // Transfer - takes:        [value, from, to]
+    swap2 swap1              // [amount, from, to]
+    _INTERNAL_TRANSFER()     // [amount, from, to]
+
+    stop
+}

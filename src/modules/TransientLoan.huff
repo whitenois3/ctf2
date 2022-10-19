@@ -4,10 +4,6 @@
 /// @author asnared <https://github.com/abigger87>
 /// @notice Non-instantiable module to add flashloan functionality to an ERC20
 
-////////////////////////////////////////////////////////////////
-//                         INTERFACE                          //
-////////////////////////////////////////////////////////////////
-
 // TransientLoan.huff
 #define function startLoan() nonpayable returns ()
 #define function borrow(address from, uint256 amount, address to) nonpayable returns ()
@@ -18,10 +14,6 @@
 // ERC-20 functions
 #define function balanceOf(address addr) view returns (uint256)
 #define function transferFrom(address from, address to, uint256 amount) nonpayable returns (bool)
-
-////////////////////////////////////////////////////////////////
-//                         CONSTANTS                          //
-////////////////////////////////////////////////////////////////
 
 /// @notice Transient storage slot for the reentrancy mutex
 #define constant MUTEX = FREE_STORAGE_POINTER()
@@ -40,10 +32,6 @@
 /// @dev The length of the string (16 bytes) is prepended to the contents of the string.
 /// Store at 1 byte before the desired destination of the string contents in memory.
 #define constant REPAY_DEBT = 0x10526570617920796f7572206465627421
-
-////////////////////////////////////////////////////////////////
-//                            MAIN                            //
-////////////////////////////////////////////////////////////////
 
 /// @notice TransientLoan Dispatcher
 #define macro TRANSIENT_LOAN_MAIN() = takes (1) returns (1) {
@@ -70,10 +58,6 @@
 
     bubble_up:
 }
-
-////////////////////////////////////////////////////////////////
-//                      INTERNAL MACROS                       //
-////////////////////////////////////////////////////////////////
 
 /// @notice Locks the transient reentrancy mutex by placing the borrower's address in the slot.
 /// @dev There is no need to zero-out the `MUTEX` slot because of EIP-1153!
@@ -138,10 +122,6 @@
     // Input stack:                                    [account]
     [BALANCE_SLOT] LOAD_ELEMENT_FROM_KEYS(0x00)     // [balance]
 }
-
-////////////////////////////////////////////////////////////////
-//                      EXTERNAL MACROS                       //
-////////////////////////////////////////////////////////////////
 
 /// @notice Start a loan callframe.
 /// @param `fail` Jump label pointing to failure logic in the `MAIN` macro

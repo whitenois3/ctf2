@@ -6,27 +6,13 @@ import "foundry-huff/HuffDeployer.sol";
 
 import { Borrower } from "./mocks/Borrower.sol";
 
-import { IERC20 } from "src/interfaces/IERC20.sol";
-import { ITransientLoan } from "src/interfaces/ITransientLoan.sol";
-import { IFlashLoanReceiver } from "src/interfaces/IFlashLoanReceiver.sol";
+import { IChallenge } from "src/interfaces/IChallenge.sol";
 
-/// @notice Challenge contract interface
-interface IChallenge is IERC20, ITransientLoan {
-    /// @notice Allows the warden to freeze the token
-    function toggle() external;
+//! WARNING
+//!
+//! We cannot fully test transient opcodes here because they are not supported in revm.
 
-    /// @notice Returns if the challenge is frozen
-    function frozen() external view returns (bool);
-
-    /// @notice Returns the given warden
-    function warden() external returns (address);
-
-    // Harvesting functions
-    function harvest(address account) external;
-    function harvestable(address account) external view returns (uint256);
-}
-
-contract VulnerableTokenTest is Test {
+contract ChallengeTest is Test {
     IChallenge public challenge;
     bool public repayLoans;
     Borrower public borrower;
@@ -44,12 +30,12 @@ contract VulnerableTokenTest is Test {
             HuffDeployer
             .config()
             .with_args(bytes.concat(abi.encode(18), abi.encode(target)))
-            .deploy("VulnerableToken")
+            .deploy("Challenge")
         );
         vm.stopPrank();
 
         // Label contract in traces.
-        vm.label(address(challenge), "Whitenois3");
+        vm.label(address(challenge), "Challenge");
 
         // Deploy the borrower with the configured target
         borrower = new Borrower(challenge, target);
@@ -86,31 +72,4 @@ contract VulnerableTokenTest is Test {
         vm.warp(2 days);
         assertEq(challenge.harvestable(target), 0);
     }
-
-    function testLoan() public {
-        // We want to repay our loans
-        repayLoans = true;
-
-        // Initialize a flash loan call frame
-        // This contract's `bankroll` function will be called, and
-        // loans can be taken out within that callframe by this contract.
-        borrower.startLoan();
-    }
-
-    function testLoanNoRepay() public {
-        // Initialize a flash loan call frame
-        // This contract's `bankroll` function will be called, and
-        // loans can be taken out within that callframe by this contract.
-
-        // This call will fail because we do not repay our loans.
-        vm.expectRevert(abi.encodeWithSelector(OutstandingDebt.selector, "Repay your debt!"));
-        borrower.failStartLoan();
-    }
-
-    // function testFailBorrowNoLoan(uint256 amount) public {
-    //     // Attempt to borrow from outside of an approved callframe
-    //     // Should revert every time.
-    //     vm.expectRevert(abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
-    //     borrow(address(mockToken), amount, address(this), false);
-    // }
 }

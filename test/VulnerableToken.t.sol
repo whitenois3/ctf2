@@ -9,17 +9,21 @@ import { Borrower } from "./mocks/Borrower.sol";
 import { ITransientLoan } from "src/ITransientLoan.sol";
 import { IFlashLoanReceiver } from "src/IFlashLoanReceiver.sol";
 
-/// @notice VulnerableToken contract interface
-interface IVulnerableToken is IERC20, ITransientLoan {
+/// @notice Challenge contract interface
+interface IChallenge is IERC20, ITransientLoan {
     /// @notice Allows the warden to freeze the token
     function toggle() external;
 
     /// @notice Returns the given warden
     function warden() external returns (address);
+
+    // Harvesting functions
+    function harvest(address account) external;
+    function harvestable(address account) external view returns (uint256);
 }
 
 contract VulnerableTokenTest is Test {
-    IVulnerableToken public flashLoaner;
+    IChallenge public challenge;
     bool public repayLoans;
     Borrower public borrower;
 
@@ -32,7 +36,7 @@ contract VulnerableTokenTest is Test {
     function setUp() public {
         // Deploy [TransientLoan] contract.
         vm.startPrank(target);
-        flashLoaner = IVulnerableToken(
+        challenge = IChallenge(
             HuffDeployer
             .config()
             .with_args(bytes.concat(abi.encode(18), abi.encode(target)))
@@ -40,28 +44,37 @@ contract VulnerableTokenTest is Test {
         );
         vm.stopPrank();
 
-        // Label [VulnerableToken] contract in traces.
-        vm.label(address(flashLoaner), "VulnerableToken");
+        // Label contract in traces.
+        vm.label(address(challenge), "Whitenois3");
 
         // Deploy the borrower with the configured target
-        borrower = new Borrower(flashLoaner, target);
+        borrower = new Borrower(challenge, target);
     }
 
     /// @notice Test the contract metdata
     function testMetadata() public {
         // Check the ERC20 metadata
-        assertEq(keccak256(abi.encode(flashLoaner.name())), keccak256(abi.encode("Whitenois3")));
-        assertEq(keccak256(abi.encode(flashLoaner.symbol())), keccak256(abi.encode("WHTN")));
-        assertEq(flashLoaner.decimals(), 18);
+        assertEq(keccak256(abi.encode(challenge.name())), keccak256(abi.encode("Whitenois3")));
+        assertEq(keccak256(abi.encode(challenge.symbol())), keccak256(abi.encode("WHTN")));
+        assertEq(challenge.decimals(), 18);
 
         // Check the warden
-        assertEq(flashLoaner.warden(), target);
-        assertEq(flashLoaner.balanceOf(target), 0x100000);
+        assertEq(challenge.warden(), target);
+        assertEq(challenge.balanceOf(target), 0x100000);
     }
 
     /// @notice test warden can freeze transfers
     function testFreezeContract() public {
 
+    }
+
+    /// @notice Test harvesting
+    function testHarvesting() public {
+        // Initially the amount harvestable should be 0 as no time has passed
+        assertEq(challenge.harvestable(target), 0);
+
+        // Warp the vm to one period
+        assertEq(challenge.harvestable(target), 0);
     }
 
     function testLoan() public {

@@ -4,8 +4,6 @@
 /// @author asnared <https://github.com/abigger87>
 /// @notice An EIP-1153 compliant CTF challenge
 
-// TODO: Add interest bearing calculations
-
 // Imports
 #include "./modules/TransientLoan.huff"
 #include "huffmate/utils/CommonErrors.huff"
@@ -35,8 +33,8 @@
 #define function warden() nonpayable returns (address)
 
 // Custom Harvesting Functions
-#define function harvest() nonpayable returns ()
-#define function harvestable() view returns (uint256)
+#define function harvest(address) nonpayable returns ()
+#define function harvestable(address) view returns (uint256)
 
 // Events
 #define event Approval(address indexed, address indexed, uint256)
@@ -257,16 +255,25 @@
         0x00 0x00 revert                    // []
 }
 
-/// @notice Internal helper to havest a user's interest
-#define macro _INTERNAL_HARVEST() = takes (1) returns (0) {
+/// @notice Get the amount of tokens an account can harvest
+#define macro HARVESTABLE() = {
+    0x04 calldataload                   // [account]
+    _HARVESTABLE()                      // [amount]
+    0x00 mstore                         // []
+    0x20 0x00 return                    // _returns_
+}
+
+/// @notice Internal helper to get the amount harvestable by an account
+#define macro _HARVESTABLE() = takes (1) returns (1) {
     // Input Stack: [account]
+    // Output Stack: [amount]
 
     // Get the last harvest time
     dup1 [LAST_HARVEST_TIME]            // [slot, account, account]
     LOAD_ELEMENT_FROM_KEYS(0x00)        // [lastHarvestTime, account]
 
-    // If the harvest time is zero, set to now and finish harvesting
-    dup1 iszero set_now jumpi           // [lastHarvestTime, account]
+    // Return 0 if the harvest time is zero
+    dup1 iszero no_harvest jumpi        // [lastHarvestTime, account]
 
     // Subtract the last harvest time from now
     timestamp sub                       // [timeSinceLastHarvest, account]
@@ -279,19 +286,51 @@
     dup2 [BALANCE_SLOT]                 // [slot, account, periodsSinceLastHarvest, account]
     LOAD_ELEMENT_FROM_KEYS(0x00)        // [balance, periodsSinceLastHarvest, account]
 
-    // Mint the user (balance * periodsSinceLastHarvest) / MAX_SUPPLY
+    // Calculate the harvestable amount(balance * periodsSinceLastHarvest) / MAX_SUPPLY
     mul [MAX_SUPPLY] swap1 div          // [amount, account]
-    dup2 swap1 _MINT()                  // [account]
-    timstamp swap1                      // [account, timestamp]
+    good_harvest jump
+
+    no_harvest:
+        pop pop 0x00                    // [0x00]
+
+    good_harvest:
+}
+
+/// @notice Harvests interest for an account
+#define macro HARVEST() = {
+    0x04 calldataload                   // [account]
+    _INTERNAL_HARVEST()                 // []
+    stop
+}
+
+/// @notice Internal helper to havest a user's interest
+#define macro _INTERNAL_HARVEST() = takes (1) returns (0) {
+    // Input Stack: [account]
+
+    // Get the last harvest time
+    dup1 [LAST_HARVEST_TIME]            // [slot, account, account]
+    LOAD_ELEMENT_FROM_KEYS(0x00)        // [lastHarvestTime, account]
+
+    // If the harvest time is zero, set to now and finish harvesting
+    iszero set_now jumpi                // [account]
+
+    // Get the harvestable ammount
+    dup1 _HARVESTABLE()                 // [amount, account]
+
+    // Mint `amount` to `account`
+    dup2 swap1 _INTERNAL_MINT()         // [account]
+
+    // Update the harvest
+    timestamp swap1                     // [account, timestamp]
     [LAST_HARVEST_TIME]                 // [slot, account, timestamp]
     STORE_ELEMENT_FROM_KEYS(0x00)       // []
     harvested jump                      // []
 
     set_now:
-        timestamp dup3                  // [account, timestamp, lastHarvestAmount, account]
-        [LAST_HARVEST_TIME]             // [slot, account, timestamp, lastHarvestAmount, account]
-        STORE_ELEMENT_FROM_KEYS(0x00)   // [lastHarvestAmount, account]
-        pop pop                         // []
+        timestamp dup2                  // [account, timestamp, account]
+        [LAST_HARVEST_TIME]             // [slot, account, timestamp, account]
+        STORE_ELEMENT_FROM_KEYS(0x00)   // [account]
+        pop                             // []
     harvested:
 }
 
@@ -646,11 +685,13 @@
 /// @notice Mints tokens to a specified address
 #define macro _MINT() = takes (2) returns (0) {
     // Input stack: [value, to]
-
     dup2 _INTERNAL_HARVEST()            // [value, to]
+    _INTERNAL_MINT()
+}
 
+#define macro _INTERNAL_MINT() = takes (2) returns (0) {
     // Cannot mint more than the maximum supply
-    dup1 [TOTAL_SUPPLY] sload add       // [newTotalSupply, value, to]
+    dup1 [TOTAL_SUPPLY_SLOT] sload add  // [newTotalSupply, value, to]
     [MAX_SUPPLY] sload                  // [maxSupply, newTotalSupply, value, to]
     gt supplyWithinConstraint jumpi     // [value, to]
         MAX_SUPPLY(0x00)                // _reverts_
@@ -705,6 +746,9 @@
     dup1 __FUNC_SIG(toggle)             eq toggleJump           jumpi       // [selector]
     dup1 __FUNC_SIG(warden)             eq wardenJump           jumpi       // [selector]
 
+    dup1 __FUNC_SIG(harvestable)        eq harvestableJump      jumpi       // [selector]
+    dup1 __FUNC_SIG(harvest)            eq harvestJump          jumpi       // [selector]
+
     0x00 dup1 revert
 
     allowanceJump: ALLOWANCE()
@@ -721,4 +765,6 @@
     transferJump: TRANSFER()
     toggleJump: TOGGLE()
     wardenJump: GET_WARDEN()
+    harvestableJump: HARVESTABLE()
+    harvestJump: HARVEST()
 }

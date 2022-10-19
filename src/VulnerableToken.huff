@@ -34,6 +34,10 @@
 #define function toggle() nonpayable returns ()
 #define function warden() nonpayable returns (address)
 
+// Custom Harvesting Functions
+#define function harvest() nonpayable returns ()
+#define function harvestable() view returns (uint256)
+
 // Events
 #define event Approval(address indexed, address indexed, uint256)
 #define event Transfer(address, address, uint256)
@@ -50,6 +54,13 @@
 #define constant FROZEN_MESSAGE = 0x46524f5a454e0000000000000000000000000000000000000000000000000000
 #define constant FROZEN_MESSAGE_LENGTH = 0x06
 
+// "MAX_SUPPLY"
+#define constant MAX_SUPPLY_ERROR = 0x4d41585f535550504c5900000000000000000000000000000000000000000000
+#define constant MAX_SUPPLY_LENGTH = 0x0a
+
+// The maximum supply is 10 * the initial total supply
+#define constant MAX_SUPPLY = 0x1000000
+
 // Storage
 #define constant WARDEN = FREE_STORAGE_POINTER()
 #define constant FROZEN = FREE_STORAGE_POINTER()
@@ -57,6 +68,10 @@
 #define constant BALANCE_SLOT = FREE_STORAGE_POINTER()
 #define constant APPROVAL_SLOT = FREE_STORAGE_POINTER()
 #define constant DECIMALS_SLOT = FREE_STORAGE_POINTER()
+
+// Compounding Interest
+#define constant LAST_HARVEST_TIME = FREE_STORAGE_POINTER()
+#define constant LAST_HARVEST_AMOUNT = FREE_STORAGE_POINTER()
 
 // EIP-2612 STORAGE
 #define constant INITIAL_CHAIN_ID = FREE_STORAGE_POINTER()
@@ -242,11 +257,50 @@
         0x00 0x00 revert                    // []
 }
 
+/// @notice Internal helper to havest a user's interest
+#define macro _INTERNAL_HARVEST() = takes (1) returns (0) {
+    // Input Stack: [account]
+
+    // Get the last harvest time
+    dup1 [LAST_HARVEST_TIME]            // [slot, account, account]
+    LOAD_ELEMENT_FROM_KEYS(0x00)        // [lastHarvestTime, account]
+
+    // If the harvest time is zero, set to now and finish harvesting
+    dup1 iszero set_now jumpi           // [lastHarvestTime, account]
+
+    // Subtract the last harvest time from now
+    timestamp sub                       // [timeSinceLastHarvest, account]
+
+    // Divide the time period by the number of periods
+    // One period = a day = 24 hours = 86400 seconds = 0x15180
+    0x15180 swap1 div                   // [timeSinceLastHarvest / 24 hours, account]
+
+    // Get the balance of the account
+    dup2 [BALANCE_SLOT]                 // [slot, account, periodsSinceLastHarvest, account]
+    LOAD_ELEMENT_FROM_KEYS(0x00)        // [balance, periodsSinceLastHarvest, account]
+
+    // Mint the user (balance * periodsSinceLastHarvest) / MAX_SUPPLY
+    mul [MAX_SUPPLY] swap1 div          // [amount, account]
+    dup2 swap1 _MINT()                  // [account]
+    timstamp swap1                      // [account, timestamp]
+    [LAST_HARVEST_TIME]                 // [slot, account, timestamp]
+    STORE_ELEMENT_FROM_KEYS(0x00)       // []
+    harvested jump                      // []
+
+    set_now:
+        timestamp dup3                  // [account, timestamp, lastHarvestAmount, account]
+        [LAST_HARVEST_TIME]             // [slot, account, timestamp, lastHarvestAmount, account]
+        STORE_ELEMENT_FROM_KEYS(0x00)   // [lastHarvestAmount, account]
+        pop pop                         // []
+    harvested:
+}
+
 /// @notice Internal Transfer
 #define macro _INTERNAL_TRANSFER() = takes (3) returns (0) {
     // Input Stack:                     // [value, from, to]
 
-    // TODO: Claim interest
+    // Automatically harvest the user's amount
+    dup2 _INTERNAL_HARVEST()            // [value, from, to]
 
     // Update the balances of the sender and recipient.
     _TRANSFER_TAKE_FROM()               // [value, from, to]
@@ -581,26 +635,44 @@
     0x20 0x00 return                    // []
 }
 
+/// @notice Reverts with a "MAX_SUPPLY" msg if the condition is false
+#define macro MAX_SUPPLY(condition) = takes (0) returns (0) {
+    [MAX_SUPPLY_ERROR]              // ["MAX_SUPPLY"]
+    [MAX_SUPPLY_LENGTH]             // [10 (length), "MAX_SUPPLY"]
+    <condition>                     // [condition, 10 (length), "MAX_SUPPLY"]
+    REQUIRE()                       // []
+}
 
 /// @notice Mints tokens to a specified address
 #define macro _MINT() = takes (2) returns (0) {
     // Input stack: [value, to]
-    dup2                            // [to, value, to]
-    swap1                           // [value, to, to]
-    _TRANSFER_GIVE_TO()             // [value, to, to]
+
+    dup2 _INTERNAL_HARVEST()            // [value, to]
+
+    // Cannot mint more than the maximum supply
+    dup1 [TOTAL_SUPPLY] sload add       // [newTotalSupply, value, to]
+    [MAX_SUPPLY] sload                  // [maxSupply, newTotalSupply, value, to]
+    gt supplyWithinConstraint jumpi     // [value, to]
+        MAX_SUPPLY(0x00)                // _reverts_
+    supplyWithinConstraint:
+
+    // Transfer the new tokens to the recipient
+    dup2                                // [to, value, to]
+    swap1                               // [value, to, to]
+    _TRANSFER_GIVE_TO()                 // [value, to, to]
 
     // Update totalSupply
-    dup1                            // [value, value, to, to]
-    [TOTAL_SUPPLY_SLOT] sload       // [supply, value, value, to, to]
-    add                             // [supply + value, value, to, to]
-    [TOTAL_SUPPLY_SLOT] sstore      // [value, to, to]
+    dup1                                // [value, value, to, to]
+    [TOTAL_SUPPLY_SLOT] sload           // [supply, value, value, to, to]
+    add                                 // [supply + value, value, to, to]
+    [TOTAL_SUPPLY_SLOT] sstore          // [value, to, to]
 
     // Emit the transfer event.
-    0x00 mstore                     // [to, to]
-    [ZERO_ADDRESS]                  // [address(0), to, to]
-    __EVENT_HASH(Transfer)          // [sig, from, to, to]
-    0x20 0x00                       // [0, 32, sig, from, to, to]
-    log3 pop                        // []
+    0x00 mstore                         // [to, to]
+    [ZERO_ADDRESS]                      // [address(0), to, to]
+    __EVENT_HASH(Transfer)              // [sig, from, to, to]
+    0x20 0x00                           // [0, 32, sig, from, to, to]
+    log3 pop                            // []
 }
 
 

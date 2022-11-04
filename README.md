@@ -6,7 +6,9 @@ Whitenoise CTF II: Tempestuous Transience
 
 ### Exploit
 
-_TODO_
+Whitenoise CTF II centers around a re-imagined version of [pote.eth's implementation of Moody's non-custodial flash loan idea](https://hackmd.io/@7-EMZFyUQNeY0Ttk6APiXA/r1rHOZ8mo#).
+
+_todo_
 
 ### Licensing
 

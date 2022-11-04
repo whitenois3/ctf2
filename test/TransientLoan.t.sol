@@ -4,26 +4,21 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 import "foundry-huff/HuffDeployer.sol";
 import {MockToken} from "./mocks/MockERC20.sol";
-import {IFlashLoanReceiver} from "../src/IFlashLoanReceiver.sol";
+import {MockBaseBorrower} from "./mocks/MockBaseBorrower.sol";
+import {MockAdversaryBorrower} from "./mocks/MockAdversaryBorrower.sol";
+import {IFlashLoanReceiver} from "../src/interfaces/IFlashLoanReceiver.sol";
+import {ITransientLoan} from "../src/interfaces/ITransientLoan.sol";
 
-/// @notice TransientLoan contract interface
-interface ITransientLoan {
-    /// @notice Initiate a flash loan. Enables calls to `borrow` within the same execution.
-    function startLoan() external virtual;
-
-    /// @notice Borrow a token from the [TransientLoan] contract.
-    function borrow(address token, uint256 amount, address to) external virtual;
-}
-
-contract TransientLoanTest is Test, IFlashLoanReceiver {
-
+contract TransientLoanTest is Test {
     ////////////////////////////////////////////////////////////////
     //                           STATE                            //
     ////////////////////////////////////////////////////////////////
 
-    ITransientLoan public flashLoaner;
-    MockToken public mockToken;
-    bool public repayLoans;
+    ITransientLoan flashLoaner;
+    MockToken mockToken;
+    MockBaseBorrower mockBaseBorrower;
+    MockAdversaryBorrower mockAdversaryBorrower;
+    bool repayLoans;
 
     ////////////////////////////////////////////////////////////////
     //                           ERRORS                           //
@@ -33,7 +28,7 @@ contract TransientLoanTest is Test, IFlashLoanReceiver {
     error OutstandingDebt(string);
 
     ////////////////////////////////////////////////////////////////
-    //                           TESTS                            //
+    //                           SETUP                            //
     ////////////////////////////////////////////////////////////////
 
     function setUp() public {
@@ -41,67 +36,64 @@ contract TransientLoanTest is Test, IFlashLoanReceiver {
         flashLoaner = ITransientLoan(HuffDeployer.config().deploy("TransientLoan"));
         // Label [TransientLoan] contract in traces.
         vm.label(address(flashLoaner), "TransientLoan");
-        
+
         // Deploy mock token
         mockToken = new MockToken("MOCK", "MCK", 18);
         mockToken.mint(address(flashLoaner), type(uint256).max);
+
+        // Deploy mock borrowers
+        mockBaseBorrower = new MockBaseBorrower(flashLoaner, mockToken);
+        mockAdversaryBorrower = new MockAdversaryBorrower(
+            flashLoaner,
+            mockToken
+        );
     }
 
-    function testLoan() public {
+    ////////////////////////////////////////////////////////////////
+    //                    BASE BORROWER TESTS                     //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Tests whether or not a loan will succeed if we repay our
+    /// outstanding debt.
+    function test_startLoan_repayDebt_success() public {
         // We want to repay our loans
-        repayLoans = true;
+        mockBaseBorrower.setRepay(true);
 
         // Initialize a flash loan call frame
-        // This contract's `bankroll` function will be called, and
-        // loans can be taken out within that callframe by this contract.
-        flashLoaner.startLoan();
+        // The `MockBaseBorrower` contract's `bankroll` function will be called, and
+        // loans can be taken out within that callframe by that contract.
+        mockBaseBorrower.performHonestLoan();
     }
 
-    function testLoanNoRepay() public {
+    /// @notice Tests whether or not a loan will revert if we do not repay
+    /// our outstanding debt.
+    function test_startLoan_noRepay_reverts() public {
         // Initialize a flash loan call frame
-        // This contract's `bankroll` function will be called, and
-        // loans can be taken out within that callframe by this contract.
+        // The `MockBaseBorrower` contract's `bankroll` function will be called, and
+        // loans can be taken out within that callframe by that contract.
 
         // This call will fail because we do not repay our loans.
         vm.expectRevert(abi.encodeWithSelector(OutstandingDebt.selector, "Repay your debt!"));
-        flashLoaner.startLoan();
+        mockBaseBorrower.performHonestLoan();
     }
 
-    function testFailBorrowNoLoan(uint256 amount) public {
+    /// @notice Tests whether or not a call to `borrow` will revert if we
+    /// have not initiated a transient loan callframe.
+    function test_borrow_noLoan_reverts(uint256 amount) public {
+        vm.assume(amount != 0);
+
         // Attempt to borrow from outside of an approved callframe
         // Should revert every time.
+        //
+        // Note: We're sending incorrectly formatted data here, but the goal
+        // is to hit the `ASSERT_BORROWER` check and have it fail.
         vm.expectRevert(abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
-        borrow(address(mockToken), amount, address(this), false);
+        flashLoaner.borrow(address(mockToken), amount, address(this));
     }
 
     ////////////////////////////////////////////////////////////////
-    //                          HELPERS                           //
+    //                  ADVERSARY BORROWER TESTS                  //
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Call the `borrow` function on the [TransientLoan] contract with
-    /// packed calldata.
-    function borrow(address token, uint256 amount, address to, bool payBack) internal {
-        (bool success,) = address(flashLoaner).call(abi.encodePacked(
-            bytes4(flashLoaner.borrow.selector),
-            token,
-            amount,
-            to
-        ));
-        assert(success);
-
-        // Optionally pay back our debt after borrowing.
-        if (payBack) {
-            mockToken.transfer(address(flashLoaner), amount);
-        }
-    }
-
-    ////////////////////////////////////////////////////////////////
-    //                  IFlashLoanReceiver impl                   //
-    ////////////////////////////////////////////////////////////////
-
-    /// @notice `IFlashLoanReceiver` implementation
-    function bankroll() external {
-        // Borrow some of the mock token
-        borrow(address(mockToken), 1 ether, address(this), repayLoans);
-    }
+    // TODO...
 }

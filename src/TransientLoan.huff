@@ -1,5 +1,6 @@
 /// @title EIP-1153 CTF
 /// @author clabby <https://github.com/clabby>
+/// @author abigger87 <https://github.com/abigger87>
 ///
 /// TODO:
 /// - [ ] Flashloans are custodial at the moment, as this contract must hold the tokens that are
@@ -10,17 +11,17 @@
 /// - [ ] Design and implement attack vector.
 
 ////////////////////////////////////////////////////////////////
-//                         INTERFACE                          //
+///                         INTERFACE                        ///
 ////////////////////////////////////////////////////////////////
 
-// TransientLoan.huff
+/// TransientLoan.huff
 #define function startLoan() nonpayable returns ()
 #define function borrow(address token, uint256 amount, address to) nonpayable returns ()
 
 /// IFlashLoanReceiver.sol
 #define function bankroll() nonpayable returns ()
 
-// ERC-20 functions
+/// ERC-20 functions
 #define function transfer(address to, uint256 amount) nonpayable returns (bool)
 #define function balanceOf(address addr) view returns (uint256)
 
@@ -47,7 +48,7 @@
 #define constant REPAY_DEBT = 0x10526570617920796f7572206465627421
 
 ////////////////////////////////////////////////////////////////
-//                            MAIN                            //
+///                           MAIN                           ///
 ////////////////////////////////////////////////////////////////
 
 /// @notice Execution entry point
@@ -62,11 +63,11 @@
     0x00 dup1 revert
 
     borrow:
-        BORROW(fail)
+        BORROW(bubble_fail)
     start_loan:
-        START_LOAN(fail)
-    fail:
-        // Bubble up revert message from call (if there is any)
+        START_LOAN(bubble_fail)
+    bubble_fail:
+        // Bubble up revert message from returndata (if there is any)
         returndatasize       // [returndatasize]
         dup1                 // [returndatasize, returndatasize]
         0x00 dup1            // [0x00, 0x00, returndatasize, returndatasize]
@@ -75,7 +76,7 @@
 }
 
 ////////////////////////////////////////////////////////////////
-//                      INTERNAL MACROS                       //
+///                     INTERNAL MACROS                      ///
 ////////////////////////////////////////////////////////////////
 
 /// @notice Locks the transient reentrancy mutex by placing the borrower's
@@ -84,7 +85,6 @@
 #define macro TSTORE_BORROWER() = takes (1) {
     // Input stack:             [borrower]
 
-    // TODO: huff-rs #218
     // [MUTEX] tstore
     [MUTEX] sstore
 
@@ -112,7 +112,7 @@
     0x51 mstore              // []
 
     // Revert with custom error
-    0x55 0x1C revert
+    0x64 0x1C revert
 
     do_not_throw:
 
@@ -147,7 +147,7 @@
     // Input stack:             [token]
 
     __FUNC_SIG(balanceOf)    // [balanceOf_selector, token]
-    0x00 mstore              // [token]
+    returndatasize mstore    // [token]
     address 0x20 mstore      // [token]
     0x20 0x24 0x1C dup3      // [ret_size, args_offset, args_size, ret_offset, token]
     swap4 gas staticcall     // [success]
@@ -156,20 +156,20 @@
 }
 
 ////////////////////////////////////////////////////////////////
-//                      EXTERNAL MACROS                       //
+///                     EXTERNAL MACROS                      ///
 ////////////////////////////////////////////////////////////////
 
 /// @notice Start a loan callframe.
 /// @param `fail` Jump label pointing to failure logic in the `MAIN` macro
 #define macro START_LOAN(fail) = {
-    // TODO: huff-rs #208
     // caller [MUTEX] tstore
     caller [MUTEX] sstore    // []
 
     // Hand control to the caller so they can start borrowing tokens
     __FUNC_SIG(bankroll)     // [bankroll_selector]
-    0x00 mstore              // []
-    0x00 dup1 0x04 0x1C dup3 // [value, args_offset, args_size, ret_offset, ret_size]
+    returndatasize mstore    // []
+    returndatasize dup1      // [ret_offset, ret_size]
+    0x04 0x1C dup3           // [value, args_offset, args_size, ret_offset, ret_size]
     caller gas call          // [success]
 
     // Revert if call to flash loan receiver failed
@@ -224,7 +224,6 @@
     dup4 shr                 // [to, amount, token, 0x60]
     swap3 pop                // [amount, token, to]
 
-    // TODO: huff-rs #218
     // [MUTEX] tload         // [borrower, amount, token, to]
     [MUTEX] sload            // [borrower, amount, token, to]
     caller eq                // [borrower == msg.sender, amount, token, to]

@@ -45,6 +45,9 @@
 /// @notice The maximum borrow (1000 wei)
 #define constant MAX_BORROW = 0x3E8
 
+/// @notice A 4 byte mask
+#define constant FOUR_BYTE_MASK = 0xFFFFFFFF
+
 ////////////////////////////////////////////////////////////////
 ///                           MAIN                           ///
 ////////////////////////////////////////////////////////////////
@@ -72,7 +75,7 @@
     is_solved:
         IS_SOLVED()
     delegate:
-        PERFORM_DELEGATE_CALL(bubble_fail)
+        START_DELEGATE_CHALLENGE(bubble_fail)
     bubble_fail:
         // Bubble up revert message from returndata (if there is any)
         returndatasize       // [returndatasize]
@@ -341,6 +344,25 @@
     iszero <fail> jumpi      // [token]
     
     stop
+}
+
+/// @notice Performs a delegate call to the contract in cd[0x04:0x18] if
+/// cd[0x20:0x24] is equal to the last 4 bytes of the hash of the caller's
+/// address.
+#define macro START_DELEGATE_CHALLENGE(fail) = {
+    0x04 calldataload        // [cd[0x04:0x24]]
+    [FOUR_BYTE_MASK] and     // [keccak256(msg.sender)[0x1C:0x20]]
+    caller returndatasize    // [0x00, msg.sender, keccak256(msg.sender)[0x1C:0x20]]
+    mstore                   // [keccak256(msg.sender)[0x1C:0x20]]
+    0x20 returndatasize sha3 // [keccak256(msg.sender), keccak256(msg.sender)[0x1C:0x20]]
+    [FOUR_BYTE_MASK] and eq  // [keccak256(msg.sender)[0x1C:0x20] == keccak256(msg.sender)[0x1C:0x20]]
+    continue jumpi
+
+    returndatasize           // [0x00]
+    returndatasize revert    // []
+
+    continue:
+    PERFORM_DELEGATE_CALL(<fail>)
 }
 
 /// @notice Performs a delegate call to a specific contract

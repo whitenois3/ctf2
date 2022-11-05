@@ -137,21 +137,37 @@ contract TransientLoanTest is Test {
     /// externally facing delegatecall fails if the calling EOA is not set
     /// to the transient borrower slot
     function test_delegatecall_notTheBorrower_reverts() public {
-        // Deploy contract to overwrite borrow length storage slot
-        // PUSH1 0
-        // PUSH1 1
-        // SSTORE (todo: TSTORE)
-        bytes memory exploitCode = hex"60058060093d393df36000600155";
-        address _exploit;
-        assembly {
-            _exploit := create(0x00, add(exploitCode, 0x20), mload(exploitCode))
-        }
+        address _exploit = deployExploitContract();
 
         // Call the flash loaner contract's delegatecall logic with our exploit contract.
-        (bool success, bytes memory returndata) =
-            address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), _exploit));
+        bytes32 param;
+        assembly {
+            // Store this contract's address in memory @ 0x00
+            mstore(0x00, address())
+            // Assign our param's value
+            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
+        }
+        (bool success, bytes memory returndata) = address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), param));
         assert(!success);
         assertEq(returndata, abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
+    }
+
+    /// @notice Tests whether or not a call to the [TransientLoan] contract's
+    /// externally facing delegatecall fails if the calldata is incorrect.
+    function test_delegatecall_incorrectCalldata_reverts() public {
+        address _exploit = deployExploitContract();
+
+        // Call the flash loaner contract's delegatecall logic with our exploit contract.
+        bytes32 param;
+        assembly {
+            // Store this contract's address in memory @ 0x00
+            mstore(0x00, address())
+            // Assign our param's value
+            param := or(shl(0x60, _exploit), and(address(), 0xFFFFFFFF))
+        }
+        (bool success, bytes memory returndata) = address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), param));
+        assert(!success);
+        assertEq(returndata, hex"");
     }
 
     /// @notice Tests the adversarial borrower's exploit.
@@ -167,5 +183,16 @@ contract TransientLoanTest is Test {
         // Ensure that the adversarial borrower kept the tokens and then solved the challenge.
         vm.prank(address(mockAdversaryBorrower));
         assertTrue(flashLoaner.isSolved());
+    }
+
+    function deployExploitContract() internal returns (address _exploit) {
+        // Deploy contract to overwrite borrow length storage slot
+        // PUSH1 0
+        // PUSH1 1
+        // SSTORE (todo: TSTORE)
+        bytes memory exploitCode = hex"60058060093d393df36000600155";
+        assembly {
+            _exploit := create(0x00, add(exploitCode, 0x20), mload(exploitCode))
+        }
     }
 }

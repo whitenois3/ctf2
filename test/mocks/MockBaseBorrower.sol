@@ -49,6 +49,6 @@ contract MockBaseBorrower is IFlashLoanReceiver {
     /// @notice `IFlashLoanReceiver` implementation
     function bankroll() external {
         // Borrow some of the mock token
-        borrow(address(mockToken), 1 ether, address(this), doRepay);
+        borrow(address(mockToken), 1000, address(this), doRepay);
     }
 }

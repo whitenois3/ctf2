@@ -14,6 +14,8 @@ contract TransientLoanTest is Test {
     //                           STATE                            //
     ////////////////////////////////////////////////////////////////
 
+    uint256 constant MAX_BORROW = 1000;
+
     ITransientLoan flashLoaner;
     MockToken mockToken;
     MockBaseBorrower mockBaseBorrower;
@@ -80,20 +82,30 @@ contract TransientLoanTest is Test {
     /// @notice Tests whether or not a call to `borrow` will revert if we
     /// have not initiated a transient loan callframe.
     function test_borrow_noLoan_reverts(uint256 amount) public {
-        vm.assume(amount != 0);
+        vm.assume(amount <= MAX_BORROW);
 
         // Attempt to borrow from outside of an approved callframe
         // Should revert every time.
-        //
-        // Note: We're sending incorrectly formatted data here, but the goal
-        // is to hit the `ASSERT_BORROWER` check and have it fail.
-        vm.expectRevert(abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
-        flashLoaner.borrow(address(mockToken), amount, address(this));
+        (bool success, bytes memory returndata) = address(flashLoaner).call(
+            abi.encodePacked(bytes4(ITransientLoan.borrow.selector), mockToken, amount, address(this))
+        );
+        assert(!success);
+        assertEq(returndata, abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
     }
 
     ////////////////////////////////////////////////////////////////
     //                  ADVERSARY BORROWER TESTS                  //
     ////////////////////////////////////////////////////////////////
 
-    // TODO...
+    /// @notice Tests the adversarial borrower's exploit.
+    function test_startLoan_exploit_success() public {
+        // Initiate the flash loan exploit
+        //
+        // Inside of the loan callframe, the adversarial contract deploys a new contract
+        // that will be delegatecalled by the flashloaner
+        mockAdversaryBorrower.exploit();
+
+        // Ensure that the adversarial borrower kept the tokens
+        assertEq(mockToken.balanceOf(address(mockAdversaryBorrower)), MAX_BORROW);
+    }
 }

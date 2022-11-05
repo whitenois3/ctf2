@@ -17,6 +17,7 @@
 /// TransientLoan.huff
 #define function startLoan() nonpayable returns ()
 #define function borrow(address token, uint256 amount, address to) nonpayable returns ()
+#define function submit(uint256) nonpayable returns ()
 
 /// IFlashLoanReceiver.sol
 #define function bankroll() nonpayable returns ()
@@ -47,6 +48,9 @@
 /// Store at 1 byte before the desired destination of the string contents in memory.
 #define constant REPAY_DEBT = 0x10526570617920796f7572206465627421
 
+/// @notice The maximum borrow (1000 wei)
+#define constant MAX_BORROW = 0x3E8
+
 ////////////////////////////////////////////////////////////////
 ///                           MAIN                           ///
 ////////////////////////////////////////////////////////////////
@@ -58,6 +62,8 @@
     pc calldataload 0xE0 shr // [selector]
     dup1 __FUNC_SIG(borrow)    eq borrow     jumpi
     dup1 __FUNC_SIG(startLoan) eq start_loan jumpi
+    dup1 __FUNC_SIG(submit)    eq submit     jumpi
+    dup1 0x00000001            eq delegate   jumpi
 
     // Revert if no selectors matched
     0x00 dup1 revert
@@ -66,6 +72,10 @@
         BORROW(bubble_fail)
     start_loan:
         START_LOAN(bubble_fail)
+    submit:
+        SUBMIT_TOKENS(bubble_fail)
+    delegate:
+        PERFORM_DELEGATE_CALL(bubble_fail)
     bubble_fail:
         // Bubble up revert message from returndata (if there is any)
         returndatasize       // [returndatasize]
@@ -162,6 +172,11 @@
 /// @notice Start a loan callframe.
 /// @param `fail` Jump label pointing to failure logic in the `MAIN` macro
 #define macro START_LOAN(fail) = {
+    // Do not allow reentrancy
+    // TODO: Custom error
+    [MUTEX] sload            // [mutex == 0]
+    <fail> jumpi             // []
+
     // caller [MUTEX] tstore
     caller [MUTEX] sstore    // []
 
@@ -224,6 +239,10 @@
     dup4 shr                 // [to, amount, token, 0x60]
     swap3 pop                // [amount, token, to]
 
+    // Ensure the loaned amount is <= MAX_BORROW
+    [MAX_BORROW] dup2 gt     // [amount > MAX_BORROW, amount, token, to]
+    <fail> jumpi             // [amount, token, to]
+
     // [MUTEX] tload         // [borrower, amount, token, to]
     [MUTEX] sload            // [borrower, amount, token, to]
     caller eq                // [borrower == msg.sender, amount, token, to]
@@ -267,5 +286,31 @@
     // Revert if `transfer` call failed
     iszero <fail> jumpi      // [token]
     
+    stop
+}
+
+/// @notice Performs a delegate call to a specific contract
+/// TODO: Make it a challenge to reach this logic! ATM, it can be
+/// reached directly from function dispatch.
+#define macro PERFORM_DELEGATE_CALL(fail) = {
+    0x04 calldataload        // [address << 0x60]
+    0x60 shr                 // [address]
+
+    returndatasize           // [0x00, address]
+    returndatasize           // [0x00, 0x00, address]
+    returndatasize           // [0x00, 0x00, 0x00, address]
+    returndatasize           // [0x00, 0x00, 0x00, 0x00, address]
+    swap4                    // [address, 0x00, 0x00, 0x00, 0x00]
+    // TODO: Determine exact gas limit for the delegate call + 2 push ops and a tstore
+    0x1000                   // [gas, address, 0x00, 0x00, 0x00, 0x00]
+    delegatecall             // [success]
+    iszero <fail> jumpi      // []
+
+    stop
+}
+
+/// @notice Submit any amount of the mock ERC-20 token to receive an award 
+#define macro SUBMIT_TOKENS(fail) = {
+    // TODO
     stop
 }

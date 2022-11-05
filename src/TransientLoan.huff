@@ -152,6 +152,46 @@
     // Return stack:            []
 }
 
+/// @notice Reverts with the `OubstandingDebt(string)` error if the condition
+/// is false.
+#define macro ASSERT_LOAN_THRESHOLD() = takes (1) {
+    // Input stack:          // [condition]
+
+    do_not_throw jumpi       // []
+
+    // Store error selector and revert string in mem[0x1C:0x20]
+    // ExceedsLoanThreshold()
+    0x12492d44               // [error_selector]
+    0x00 mstore              // []
+
+    // Revert with custom error
+    0x04 0x1C revert
+
+    do_not_throw:
+
+    // Return stack:            []
+}
+
+/// @notice Reverts with the `OubstandingDebt(string)` error if the condition
+/// is false.
+#define macro ASSERT_NO_REENTRANCY() = takes (1) {
+    // Input stack:          // [condition]
+
+    do_not_throw jumpi       // []
+
+    // Store error selector and revert string in mem[0x1C:0x20]
+    // NoReentrancy()
+    0x583fe886               // [error_selector]
+    0x00 mstore              // []
+
+    // Revert with custom error
+    0x04 0x1C revert
+
+    do_not_throw:
+
+    // Return stack:            []
+}
+
 /// @notice Retrieves this address' balance of an ERC-20 compliant token
 #define macro SELF_BALANCE_OF() = takes (1) returns (1) {
     // Input stack:             [token]
@@ -174,8 +214,8 @@
 #define macro START_LOAN(fail) = {
     // Do not allow reentrancy
     // TODO: Custom error
-    [MUTEX] sload            // [mutex == 0]
-    <fail> jumpi             // []
+    [MUTEX] sload iszero     // [mutex == 0]
+    ASSERT_NO_REENTRANCY()   // []
 
     // caller [MUTEX] tstore
     caller [MUTEX] sstore    // []
@@ -241,8 +281,9 @@
     swap3 pop                // [amount, token, to]
 
     // Ensure the loaned amount is <= MAX_BORROW
-    [MAX_BORROW] dup2 gt     // [amount > MAX_BORROW, amount, token, to]
-    <fail> jumpi             // [amount, token, to]
+    [MAX_BORROW] dup2        // [amount, MAX_BORROW, amount, token, to]
+    gt iszero                // [amount <= MAX_BORROW, amount, token, to]
+    ASSERT_LOAN_THRESHOLD()  // [amount, token, to]
 
     // [MUTEX] tload         // [borrower, amount, token, to]
     [MUTEX] sload            // [borrower, amount, token, to]

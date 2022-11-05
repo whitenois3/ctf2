@@ -6,6 +6,7 @@ import "foundry-huff/HuffDeployer.sol";
 import {MockToken} from "./mocks/MockERC20.sol";
 import {MockBaseBorrower} from "./mocks/MockBaseBorrower.sol";
 import {MockAdversaryBorrower} from "./mocks/MockAdversaryBorrower.sol";
+import {MockReentrantBorrower} from "./mocks/MockReentrantBorrower.sol";
 import {IFlashLoanReceiver} from "../src/interfaces/IFlashLoanReceiver.sol";
 import {ITransientLoan} from "../src/interfaces/ITransientLoan.sol";
 
@@ -20,7 +21,7 @@ contract TransientLoanTest is Test {
     MockToken mockToken;
     MockBaseBorrower mockBaseBorrower;
     MockAdversaryBorrower mockAdversaryBorrower;
-    bool repayLoans;
+    MockReentrantBorrower mockReentrantBorrower;
 
     ////////////////////////////////////////////////////////////////
     //                           ERRORS                           //
@@ -28,6 +29,8 @@ contract TransientLoanTest is Test {
 
     error RejectBorrower(string);
     error OutstandingDebt(string);
+    error ExceedsLoanThreshold();
+    error NoReentrancy();
 
     ////////////////////////////////////////////////////////////////
     //                           SETUP                            //
@@ -46,6 +49,10 @@ contract TransientLoanTest is Test {
         // Deploy mock borrowers
         mockBaseBorrower = new MockBaseBorrower(flashLoaner, mockToken);
         mockAdversaryBorrower = new MockAdversaryBorrower(
+            flashLoaner,
+            mockToken
+        );
+        mockReentrantBorrower = new MockReentrantBorrower(
             flashLoaner,
             mockToken
         );
@@ -91,6 +98,17 @@ contract TransientLoanTest is Test {
         );
         assert(!success);
         assertEq(returndata, abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
+    }
+
+    ////////////////////////////////////////////////////////////////
+    //                  REENTRANT BORROWER TESTS                  //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Tests whether or not a reentrant call to `startLoan`
+    /// will revert.
+    function test_startLoan_reenters_reverts() public {
+        vm.expectRevert(NoReentrancy.selector);
+        mockReentrantBorrower.performReentrantLoan();
     }
 
     ////////////////////////////////////////////////////////////////

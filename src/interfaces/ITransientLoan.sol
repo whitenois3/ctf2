@@ -8,4 +8,10 @@ interface ITransientLoan {
     /// @notice Borrow a token from the [TransientLoan] contract.
     /// @dev The actual inputs to this logic must be packed- this is bait.
     function borrow(address token, uint256 amount, address to) external;
+
+    /// @notice Transfer captured tokens in exchange for a spot on the reward mint list.
+    function submit() external;
+
+    /// @notice Check whether or not the calling EOA has solved the challenge.
+    function isSolved() external view returns (bool);
 }

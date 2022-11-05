@@ -1,17 +1,17 @@
 pragma solidity ^0.8.17;
 
-import {ITransientLoan} from "../../src/interfaces/ITransientLoan.sol";
-import {IFlashLoanReceiver} from "../../src/interfaces/IFlashLoanReceiver.sol";
-import {MockToken} from "./MockERC20.sol";
+import { ITransientLoan } from "../../src/interfaces/ITransientLoan.sol";
+import { IFlashLoanReceiver } from "../../src/interfaces/IFlashLoanReceiver.sol";
+import { Token } from "../../src/Token.sol";
 
 /// @notice A borrower that reenters the `startLoan` function
 contract MockReentrantBorrower is IFlashLoanReceiver {
     /// @notice The transient loan contract
     ITransientLoan flashLoaner;
     /// @notice The mock erc20 that will be borrowed
-    MockToken mockToken;
+    Token mockToken;
 
-    constructor(ITransientLoan _flashLoaner, MockToken _mockToken) {
+    constructor(ITransientLoan _flashLoaner, Token _mockToken) {
         flashLoaner = _flashLoaner;
         mockToken = _mockToken;
     }

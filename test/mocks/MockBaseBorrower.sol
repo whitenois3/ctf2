@@ -1,19 +1,19 @@
 pragma solidity ^0.8.17;
 
-import {ITransientLoan} from "../../src/interfaces/ITransientLoan.sol";
-import {IFlashLoanReceiver} from "../../src/interfaces/IFlashLoanReceiver.sol";
-import {MockToken} from "./MockERC20.sol";
+import { ITransientLoan } from "../../src/interfaces/ITransientLoan.sol";
+import { IFlashLoanReceiver } from "../../src/interfaces/IFlashLoanReceiver.sol";
+import { Token } from "../../src/Token.sol";
 
 /// @notice A no-frills flash loan receiver
 contract MockBaseBorrower is IFlashLoanReceiver {
     /// @notice The transient loan contract
     ITransientLoan flashLoaner;
     /// @notice The mock erc20 that will be borrowed
-    MockToken mockToken;
+    Token mockToken;
     /// @notice Will this contract repay its loans?
     bool doRepay;
 
-    constructor(ITransientLoan _flashLoaner, MockToken _mockToken) {
+    constructor(ITransientLoan _flashLoaner, Token _mockToken) {
         flashLoaner = _flashLoaner;
         mockToken = _mockToken;
     }
@@ -32,7 +32,7 @@ contract MockBaseBorrower is IFlashLoanReceiver {
     /// @notice Call the `borrow` function on the [TransientLoan] contract with
     /// packed calldata.
     function borrow(address token, uint256 amount, address to, bool payBack) public {
-        (bool success, bytes memory returndata) =
+        (bool success,) =
             address(flashLoaner).call(abi.encodePacked(bytes4(flashLoaner.borrow.selector), token, amount, to));
         assert(success);
 

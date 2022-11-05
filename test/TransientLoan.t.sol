@@ -3,12 +3,12 @@ pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 import "foundry-huff/HuffDeployer.sol";
-import {MockToken} from "./mocks/MockERC20.sol";
-import {MockBaseBorrower} from "./mocks/MockBaseBorrower.sol";
-import {MockAdversaryBorrower} from "./mocks/MockAdversaryBorrower.sol";
-import {MockReentrantBorrower} from "./mocks/MockReentrantBorrower.sol";
-import {IFlashLoanReceiver} from "../src/interfaces/IFlashLoanReceiver.sol";
-import {ITransientLoan} from "../src/interfaces/ITransientLoan.sol";
+import { Token } from "../src/Token.sol";
+import { MockBaseBorrower } from "./mocks/MockBaseBorrower.sol";
+import { MockAdversaryBorrower } from "./mocks/MockAdversaryBorrower.sol";
+import { MockReentrantBorrower } from "./mocks/MockReentrantBorrower.sol";
+import { IFlashLoanReceiver } from "../src/interfaces/IFlashLoanReceiver.sol";
+import { ITransientLoan } from "../src/interfaces/ITransientLoan.sol";
 
 contract TransientLoanTest is Test {
     ////////////////////////////////////////////////////////////////
@@ -18,10 +18,10 @@ contract TransientLoanTest is Test {
     uint256 constant MAX_BORROW = 1000;
 
     ITransientLoan flashLoaner;
-    MockToken mockToken;
+    Token mockToken;
     MockBaseBorrower mockBaseBorrower;
-    MockAdversaryBorrower mockAdversaryBorrower;
     MockReentrantBorrower mockReentrantBorrower;
+    MockAdversaryBorrower mockAdversaryBorrower;
 
     ////////////////////////////////////////////////////////////////
     //                           ERRORS                           //
@@ -32,30 +32,48 @@ contract TransientLoanTest is Test {
     error ExceedsLoanThreshold();
     error NoReentrancy();
 
+    error NotTheMinter();
+
     ////////////////////////////////////////////////////////////////
     //                           SETUP                            //
     ////////////////////////////////////////////////////////////////
 
     function setUp() public {
+        // Deploy mock token
+        mockToken = new Token("MOCK", "MCK", 18);
+
         // Deploy [TransientLoan] contract.
-        flashLoaner = ITransientLoan(HuffDeployer.config().deploy("TransientLoan"));
+        flashLoaner = ITransientLoan(
+            HuffDeployer.config().with_addr_constant("TOKEN", address(mockToken)).deploy("TransientLoan")
+        );
         // Label [TransientLoan] contract in traces.
         vm.label(address(flashLoaner), "TransientLoan");
 
-        // Deploy mock token
-        mockToken = new MockToken("MOCK", "MCK", 18);
+        // Mint max uint tokens to the [TransientLoan] contract.
         mockToken.mint(address(flashLoaner), type(uint256).max);
 
         // Deploy mock borrowers
         mockBaseBorrower = new MockBaseBorrower(flashLoaner, mockToken);
-        mockAdversaryBorrower = new MockAdversaryBorrower(
-            flashLoaner,
-            mockToken
-        );
         mockReentrantBorrower = new MockReentrantBorrower(
             flashLoaner,
             mockToken
         );
+        mockAdversaryBorrower = new MockAdversaryBorrower(
+            flashLoaner,
+            mockToken
+        );
+    }
+
+    ////////////////////////////////////////////////////////////////
+    //                        TOKEN TESTS                         //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Tests whether or not an EOA other than the owner can mint
+    /// the loaned token.
+    function test_mint_notMinter_reverts() public {
+        vm.prank(address(0xbeef));
+        vm.expectRevert(NotTheMinter.selector);
+        mockToken.mint(address(this), type(uint256).max);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -115,15 +133,39 @@ contract TransientLoanTest is Test {
     //                  ADVERSARY BORROWER TESTS                  //
     ////////////////////////////////////////////////////////////////
 
+    /// @notice Tests whether or not a call to the [TransientLoan] contract's
+    /// externally facing delegatecall fails if the calling EOA is not set
+    /// to the transient borrower slot
+    function test_delegatecall_notTheBorrower_reverts() public {
+        // Deploy contract to overwrite borrow length storage slot
+        // PUSH1 0
+        // PUSH1 1
+        // SSTORE (todo: TSTORE)
+        bytes memory exploitCode = hex"60058060093d393df36000600155";
+        address _exploit;
+        assembly {
+            _exploit := create(0x00, add(exploitCode, 0x20), mload(exploitCode))
+        }
+
+        // Call the flash loaner contract's delegatecall logic with our exploit contract.
+        (bool success, bytes memory returndata) =
+            address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), _exploit));
+        assert(!success);
+        assertEq(returndata, abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
+    }
+
     /// @notice Tests the adversarial borrower's exploit.
     function test_startLoan_exploit_success() public {
         // Initiate the flash loan exploit
         //
         // Inside of the loan callframe, the adversarial contract deploys a new contract
-        // that will be delegatecalled by the flashloaner
+        // that will be delegatecalled by the flashloaner. This contract should zero-out
+        // the transient storage slot containing the length of the `borrows` array, allowing
+        // them to completely bypass the debt collection process and keep their loaned tokens.
         mockAdversaryBorrower.exploit();
 
-        // Ensure that the adversarial borrower kept the tokens
-        assertEq(mockToken.balanceOf(address(mockAdversaryBorrower)), MAX_BORROW);
+        // Ensure that the adversarial borrower kept the tokens and then solved the challenge.
+        vm.prank(address(mockAdversaryBorrower));
+        assertTrue(flashLoaner.isSolved());
     }
 }

@@ -13,3 +13,6 @@ runs = 1028
 
 [rpc_endpoints]
 eip1153_fork = "http://rpc.eip1153.com"
+
+[fmt]
+bracket_spacing = true

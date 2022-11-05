@@ -366,10 +366,6 @@
 }
 
 /// @notice Performs a delegate call to a specific contract
-/// TODO: Make it a challenge to reach this logic! ATM, it can be
-/// reached directly from function dispatch.
-/// TODO: Add bytecode purity checker! We don't want people to be able to overwrite
-/// any persistent storage slots here.
 #define macro PERFORM_DELEGATE_CALL(fail) = {
     // Ensure that the calling address is the current transient borrower
     // TODO: tload
@@ -386,6 +382,8 @@
     returndatasize           // [0x00, 0x00, 0x00, 0x00, address]
     swap4                    // [address, 0x00, 0x00, 0x00, 0x00]
     // TODO: Determine exact gas limit for the delegate call + 2 push ops and a tstore
+    // It's super important that we update this value before deployment- otherwise,
+    // attackers will be able to update persistent storage here.
     0x1000                   // [gas, address, 0x00, 0x00, 0x00, 0x00]
     delegatecall             // [success]
     iszero <fail> jumpi      // []

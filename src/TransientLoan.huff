@@ -66,7 +66,7 @@
     dup1 0x00000001            eq delegate   jumpi
 
     // Revert if no selectors matched
-    0x00 dup1 revert
+    returndatasize returndatasize revert
 
     borrow:
         BORROW(bubble_fail)
@@ -183,7 +183,8 @@
     // Hand control to the caller so they can start borrowing tokens
     __FUNC_SIG(bankroll)     // [bankroll_selector]
     returndatasize mstore    // []
-    returndatasize dup1      // [ret_offset, ret_size]
+    returndatasize           // [ret_size]
+    returndatasize           // [ret_offset, ret_size]
     0x04 0x1C dup3           // [value, args_offset, args_size, ret_offset, ret_size]
     caller gas call          // [success]
 

@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////
 
 /// TransientLoan.huff
+#define event ChallengeSolved(address indexed eoa)
 #define function startLoan() nonpayable returns ()
 #define function borrow(address token, uint256 amount, address to) nonpayable returns ()
 #define function submit() nonpayable returns ()
@@ -414,6 +415,11 @@
     caller 0x00 mstore       // [0x01]
     0x20 0x00 sha3           // [keccak256(msg.sender), 0x01]
     sstore                   // []
+
+    // Emit the `ChallengeSolved` event for indexing
+    origin                   // []
+    __EVENT_HASH(ChallengeSolved)
+    0x00 dup1 log2           // []
 
     stop
 }

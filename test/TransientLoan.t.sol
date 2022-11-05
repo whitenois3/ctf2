@@ -27,12 +27,22 @@ contract TransientLoanTest is Test {
     //                           ERRORS                           //
     ////////////////////////////////////////////////////////////////
 
+    // TransientLoan
     error RejectBorrower(string);
     error OutstandingDebt(string);
     error ExceedsLoanThreshold();
     error NoReentrancy();
 
+    // Token
     error NotTheMinter();
+
+
+    ////////////////////////////////////////////////////////////////
+    //                           EVENTS                           //
+    ////////////////////////////////////////////////////////////////
+
+    // TransientLoan
+    event ChallengeSolved(address indexed eoa);
 
     ////////////////////////////////////////////////////////////////
     //                           SETUP                            //
@@ -178,6 +188,8 @@ contract TransientLoanTest is Test {
         // that will be delegatecalled by the flashloaner. This contract should zero-out
         // the transient storage slot containing the length of the `borrows` array, allowing
         // them to completely bypass the debt collection process and keep their loaned tokens.
+        vm.expectEmit(true, false, false, false);
+        emit ChallengeSolved(tx.origin);
         mockAdversaryBorrower.exploit();
 
         // Ensure that the adversarial borrower kept the tokens and then solved the challenge.

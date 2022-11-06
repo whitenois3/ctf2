@@ -269,11 +269,25 @@ contract TransientLoanTest is Test {
     }
 
     ////////////////////////////////////////////////////////////////
-    //                  HONEYPOT BORROWER TESTS                   //
+    //                  HONEYPOT TESTS                            //
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Tests the adversarial borrower's exploit.
-    function test_foo() public {
-        // TODO
+    /// @notice Tests that the honeypot method correctly hashes
+    /// and stores into storage/transient memory
+    function test_honeypot() public {
+        address caller = address(0x1a4);
+
+        vm.record();
+        vm.prank(caller);
+        (bool success, ) = address(flashLoaner).call(abi.encodeWithSignature("enter()"));
+        assertEq(success, true);
+
+        (, bytes32[] memory writes) = vm.accesses(address(flashLoaner));
+        assertEq(writes.length, 1);
+
+        bytes32 slot = writes[0];
+        bytes32 digest = vm.load(address(flashLoaner), slot);
+        bytes memory data = abi.encode(caller, address(flashLoaner));
+        assertEq(digest, keccak256(data));
     }
 }

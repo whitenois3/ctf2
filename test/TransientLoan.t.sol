@@ -164,7 +164,8 @@ contract TransientLoanTest is Test {
             // Assign our param's value
             param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
         }
-        (bool success, bytes memory returndata) = address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), param));
+        (bool success, bytes memory returndata) =
+            address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
         assert(!success);
         assertEq(returndata, abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
     }
@@ -184,7 +185,8 @@ contract TransientLoanTest is Test {
             // Assign our param's value
             param := or(shl(0x60, _exploit), and(address(), 0xFFFFFFFF))
         }
-        (bool success, bytes memory returndata) = address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), param));
+        (bool success, bytes memory returndata) =
+            address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
         assert(!success);
         assertEq(returndata, hex"");
     }
@@ -253,7 +255,8 @@ contract TransientLoanTest is Test {
         assertTrue(flashLoaner.isSolved());
     }
 
-    /// @notice Tests the adversarial borrower's exploit.
+    /// @notice Tests that a borrower who attempts to change the mutex slot with their
+    /// delegate call reverts.
     function test_startLoan_submitLoanedTokens_reverts() public {
         // Initiate the flash loan exploit
         //
@@ -266,21 +269,23 @@ contract TransientLoanTest is Test {
 
         // Ensure that we did not keep the tokens after the flash loan
         assertEq(mockToken.balanceOf(address(mockMutexClearBorrower)), 0);
+        // Ensure that we did not solve the challenge.
+        vm.prank(address(mockMutexClearBorrower));
+        assertTrue(!flashLoaner.isSolved());
     }
 
     ////////////////////////////////////////////////////////////////
-    //                  HONEYPOT TESTS                            //
+    //                       HONEYPOT TESTS                       //
     ////////////////////////////////////////////////////////////////
 
     /// @notice Tests that the honeypot method correctly hashes
     /// and stores into storage/transient memory
-    function test_honeypot() public {
+    function test_enter_honeypot_success() public {
         address caller = address(0x1a4);
 
         vm.record();
         vm.prank(caller);
-        (bool success, ) = address(flashLoaner).call(abi.encodeWithSignature("enter()"));
-        assertEq(success, true);
+        flashLoaner.enter();
 
         (, bytes32[] memory writes) = vm.accesses(address(flashLoaner));
         assertEq(writes.length, 1);
@@ -289,5 +294,20 @@ contract TransientLoanTest is Test {
         bytes32 digest = vm.load(address(flashLoaner), slot);
         bytes memory data = abi.encode(caller, address(flashLoaner));
         assertEq(digest, keccak256(data));
+    }
+
+    /// @notice Tests that the second honeypot method can only write
+    /// to transient storage slots > 2_000_000_000.
+    function test_write_honeypot_success() public {
+        // A call with a slot <= `2_000_000_000` should fail.
+        vm.expectRevert();
+        flashLoaner.write(bytes32(uint256(block.timestamp)), bytes32(0));
+        vm.expectRevert();
+        flashLoaner.write(bytes32(uint256(2_000_000_000)), bytes32(0));
+
+        // A call with a slot > `2_000_000_000` should succeed and write the
+        // data.
+        flashLoaner.write(bytes32(uint256(2_000_000_001)), bytes32(uint256(0xa57b)));
+        assertEq(vm.load(address(flashLoaner), bytes32(uint256(2_000_000_001))), bytes32(uint256(0xa57b)));
     }
 }

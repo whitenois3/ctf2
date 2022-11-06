@@ -9,6 +9,17 @@ interface ITransientLoan {
     /// @dev The actual inputs to this logic must be packed- this is bait.
     function borrow(address token, uint256 amount, address to) external;
 
+    /// @notice Write to the mutex slot.
+    function enter() external;
+
+    /// @notice Write to an arbitrary transient storage slot > 2_000_000_000
+    function write(bytes32 slot, bytes32 value) external;
+
+    /// @notice The external delegatecall functionality
+    /// @dev The signature is misleading- this function only takes in 32 bytes
+    /// of calldata.
+    function atlas(uint256, uint256, uint256) external;
+
     /// @notice Transfer captured tokens in exchange for a spot on the reward mint list.
     function submit() external;
 

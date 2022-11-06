@@ -36,14 +36,15 @@ contract MockMutexClearBorrower is IFlashLoanReceiver {
         );
         assert(success);
 
-        // Deploy contract to overwrite borrow length storage slot
+        // Deploy contract to overwrite mutex storage slot
         // PUSH1 0
-        // PUSH1 1
+        // PUSH1 0
         // SSTORE (todo: TSTORE)
         address _exploit = HuffDeployer.config().deploy("delegates/ClearMutexDelegate");
 
         // Call the flash loaner contract's delegatecall logic with our exploit contract
-        // to overwrite the num_borrows slot and skip the debt collection loop.
+        // to overwrite the mutex slot in order to submit our loaned tokens to solve
+        // the challenge. Should revert.
         bytes32 param;
         assembly {
             // Store this contract's address in memory @ 0x00

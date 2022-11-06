@@ -16,8 +16,7 @@ contract MockReentrantBorrower is IFlashLoanReceiver {
         mockToken = _mockToken;
     }
 
-    /// @notice Perform a no-frills flash loan. If `doRepay` is set to false,
-    /// the borrow will not be repaid.
+    /// @notice Perform a reentrant flashloan
     function performReentrantLoan() external {
         flashLoaner.startLoan();
     }
@@ -28,6 +27,7 @@ contract MockReentrantBorrower is IFlashLoanReceiver {
 
     /// @notice `IFlashLoanReceiver` implementation
     function bankroll() external {
+        // Reenter `startLoan`
         flashLoaner.startLoan();
     }
 }

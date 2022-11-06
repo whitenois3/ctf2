@@ -264,7 +264,7 @@ contract TransientLoanTest is Test {
         vm.expectRevert(abi.encodeWithSelector(OutstandingDebt.selector, "Repay your debt!"));
         mockMutexClearBorrower.exploit();
 
-        // Ensure that we kept the tokens after the flash loan
+        // Ensure that we did not keep the tokens after the flash loan
         assertEq(mockToken.balanceOf(address(mockMutexClearBorrower)), 0);
     }
 }

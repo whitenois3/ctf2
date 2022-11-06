@@ -38,13 +38,14 @@ contract MockAdversaryBorrower is IFlashLoanReceiver {
 
         // Deploy contract to overwrite borrow length storage slot
         // PUSH1 0
-        // PUSH1 1
+        // PUSH1 block.timestamp
         // SSTORE (todo: TSTORE)
         address _exploit =
             HuffDeployer.config().with_uint_constant("SLOT", block.timestamp).deploy("delegates/Delegate");
 
         // Call the flash loaner contract's delegatecall logic with our exploit contract
-        // to overwrite the num_borrows slot and skip the debt collection loop.
+        // to overwrite the borrows array length slot and skip the debt collection loop.
+        // Should succeed.
         bytes32 param;
         assembly {
             // Store this contract's address in memory @ 0x00

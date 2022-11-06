@@ -52,7 +52,7 @@ contract MockMutexClearBorrower is IFlashLoanReceiver {
             // Assign our param's value
             param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
         }
-        (success,) = address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), param));
+        (success,) = address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
         assert(!success);
 
         // Submit our tokens back to the flash loaner to solve the challenge.

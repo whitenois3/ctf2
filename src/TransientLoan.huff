@@ -13,6 +13,10 @@
 #define function submit() nonpayable returns ()
 #define function isSolved() nonpayable returns (bool)
 #define function enter() nonpayable returns ()
+#define function write(bytes32, bytes32) nonpayable returns ()
+/// @dev The signature is meant to throw attackers off- this function only takes
+/// 32 bytes of calldata.
+#define function atlas(uint256, uint256, uint256) nonpayable returns () 
 
 /// IFlashLoanReceiver.sol
 #define function bankroll() nonpayable returns ()
@@ -56,10 +60,11 @@
     pc calldataload 0xE0 shr // [selector]
     dup1 __FUNC_SIG(borrow)    eq borrow     jumpi
     dup1 __FUNC_SIG(enter)     eq enter      jumpi
+    dup1 __FUNC_SIG(write)     eq write      jumpi
     dup1 __FUNC_SIG(startLoan) eq start_loan jumpi
+    dup1 __FUNC_SIG(atlas)     eq delegate   jumpi
     dup1 __FUNC_SIG(submit)    eq submit     jumpi
     dup1 __FUNC_SIG(isSolved)  eq is_solved  jumpi
-    dup1 0x01                  eq delegate   jumpi
 
     // Revert if no selectors matched
     returndatasize returndatasize revert
@@ -68,14 +73,16 @@
         BORROW(bubble_fail)
     enter:
         ENTER()
+    write:
+        WRITE(bubble_fail)
     start_loan:
         START_LOAN(bubble_fail)
+    delegate:
+        START_DELEGATE_CHALLENGE(bubble_fail)
     submit:
         SUBMIT_TOKENS(bubble_fail)
     is_solved:
         IS_SOLVED()
-    delegate:
-        START_DELEGATE_CHALLENGE(bubble_fail)
     bubble_fail:
         // Bubble up revert message from returndata (if there is any)
         returndatasize       // [returndatasize]
@@ -370,6 +377,13 @@
 /// @notice Computes the following:
 /// `keccak256(abi.encode(msg.sender, address(this)))`
 /// and sets the result at the location of the mutex.
+///
+/// *This macro is a honeypot*
+///
+/// SAFETY:
+/// - This is effectively a no-op. Because the `SUBMIT` macro checks if the
+/// `MUTEX` slot is zero, there is no way to take advantage of this. In addition,
+/// it will prevent any borrows or delegatecalls after calling.
 #define macro ENTER() = {
     caller 0x00 mstore       // []
     address 0x20 mstore      // []
@@ -378,6 +392,63 @@
     [MUTEX] sstore           // []
 
     stop
+}
+
+/// @notice Writes an arbitrary value to a transient storage slot that is greater
+/// than any feasible timestamp. Contains some no-op code in between the check
+/// to mislead the reader.
+///
+/// *This macro is a honeypot*
+///
+/// SAFETY:
+/// - Because `timestamp` is used for the `borrows` array start in transient
+/// storage, being able to write to any transient slot greater than `0x77359400` is 
+/// safe.
+#define macro WRITE(fail) = {
+    0x77359400               // [0x77359400]
+
+    // No-op code: Call the ID precompile and ignore result
+    dup1 0x08 shl            // [0x77359400 << 0x08, 0x77359400]
+    returndatasize mstore    // [0x77359400]
+    returndatasize           // [ret_size, 0x77359400]
+    returndatasize           // [ret_offset, ret_size, 0x77359400]
+    msize returndatasize     // [args_offset, args_size, ret_offset, ret_size, 0x77359400]
+    0x04 gas staticcall      // [success, 0x77359400]
+    msize shl                // [success << msize, 0x77359400]
+    pop                      // [0x77359400]
+
+    // Load slot from calldata
+    0x04 calldataload        // [slot, 0x77359400]
+
+    // No-op code: Left 12 bytes of RipeMD hash will always be 0.
+    dup1 returndatasize      // [offset, slot, slot, 0x77359400]
+    mstore                   // [slot, 0x77359400]
+    msize returndatasize     // [ret_offset, ret_size, slot, 0x77359400]
+    msize returndatasize     // [args_offset, args_size, ret_offset, ret_size, slot, 0x77359400]
+    0x03 gas staticcall      // [success, slot, 0x77359400]
+    iszero <fail> jumpi      // [slot, 0x77359400]
+    0x00 mload               // [hash, slot, 0x77359400]
+    0xA0 shr                 // [hash >> 0xA0, slot, 0x77359400]
+    <fail> jumpi             // [slot, 0x77359400]
+
+    // Ensure that the slot passed in the first word of calldata is greater
+    // than 2 billion.
+    dup1 swap2               // [0x77359400, slot, slot]
+    lt                       // [0x77359400 < slot, slot]
+    continue jumpi           // [slot]
+
+    // Don't let the attacker write to any transient storage slot below
+    // `0x77359400`. Because `timestamp` is used for the `borrows` array
+    // slot, this effectively makes this a no-op.
+    returndatasize returndatasize revert
+    
+    continue:
+        // TODO: tstore
+        0x24 calldataload    // [value, slot]
+        swap1                // [slot, value]
+        sstore               // []
+
+        stop
 }
 
 /// @notice Performs a delegate call to the contract in cd[0x04:0x18] if

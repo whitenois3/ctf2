@@ -9,7 +9,7 @@ remappings = [
 ffi = true
 
 [fuzz]
-runs = 1028
+runs = 128
 
 [rpc_endpoints]
 eip1153_fork = "http://rpc.eip1153.com"

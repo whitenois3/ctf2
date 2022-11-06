@@ -218,6 +218,41 @@ contract TransientLoanTest is Test {
         assertTrue(flashLoaner.isSolved());
     }
 
+    /// @notice Tests the adversarial borrower's exploit with different
+    /// timestamps.
+    function testFuzz_startLoan_exploit_success(uint256 timestamp) public {
+        /// @dev The mutex is in slot 0; the `borrows` array will take up
+        /// 3 slots.
+        vm.assume(timestamp <= type(uint256).max - 3 && timestamp > 0);
+        vm.warp(timestamp);
+
+        // Initiate the flash loan exploit
+        //
+        // Inside of the loan callframe, the adversarial contract deploys a new contract
+        // that will be delegatecalled by the flashloaner. This contract should zero-out
+        // the transient storage slot containing the length of the `borrows` array, allowing
+        // them to completely bypass the debt collection process and keep their loaned tokens.
+        mockAdversaryBorrower.exploit();
+
+        // Ensure that we kept the tokens after the flash loan completed
+        assertEq(mockToken.balanceOf(address(mockAdversaryBorrower)), Constants.MAX_BORROW);
+
+        // Act as if we were in another transaction- because we're using persistent
+        // storage for these tests, we need to clear the mutex slot manually to continue
+        // and solve the challenge due to the reentrancy guard on `SUBMIT`.
+        vm.store(address(flashLoaner), 0, 0);
+
+        // Submit our tokens back to the flash loaner to solve the challenge.
+        mockToken.approve(address(flashLoaner), Constants.MAX_BORROW);
+        vm.expectEmit(true, false, false, false);
+        emit ChallengeSolved(tx.origin);
+        flashLoaner.submit();
+
+        // Ensure that the adversarial borrower solved the challenge.
+        vm.prank(tx.origin);
+        assertTrue(flashLoaner.isSolved());
+    }
+
     /// @notice Tests the adversarial borrower's exploit.
     function test_startLoan_submitLoanedTokens_reverts() public {
         // Initiate the flash loan exploit

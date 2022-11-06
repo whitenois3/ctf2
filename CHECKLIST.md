@@ -16,7 +16,7 @@ _Feel free to submit a PR with anything else you can think of!_
             their flashloaned tokens. Afterwards, they will submit these tokens back to the `TransientLoan` contract to be included in
             the mainnet reward drop merkle tree.
         - [x] Make this more difficult (used `timestamp` for `borrows` array slot + weird calldata packing - see mock borrowers.)
-        - [ ] Add several honeypot functions to mislead participants.
+        - [x] Add several honeypot functions to mislead participants.
       - [ ] Create mechanism for redeeming a reward NFT in exchange for any amount of mock tokens.
         - [ ] Index the emitted `ChallengeSolved` events to create a Merkle Tree of users elligible for claiming the reward NFT
               on a real chain.

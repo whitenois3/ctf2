@@ -267,4 +267,13 @@ contract TransientLoanTest is Test {
         // Ensure that we did not keep the tokens after the flash loan
         assertEq(mockToken.balanceOf(address(mockMutexClearBorrower)), 0);
     }
+
+    ////////////////////////////////////////////////////////////////
+    //                  HONEYPOT BORROWER TESTS                   //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Tests the adversarial borrower's exploit.
+    function test_foo() public {
+        // TODO
+    }
 }

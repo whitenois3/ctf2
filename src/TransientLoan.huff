@@ -54,6 +54,7 @@
     // TODO: Maybe use a jumptable >:D
     pc calldataload 0xE0 shr // [selector]
     dup1 __FUNC_SIG(borrow)    eq borrow     jumpi
+    dup1 __FUNC_SIG(enter)     eq enter      jumpi
     dup1 __FUNC_SIG(startLoan) eq start_loan jumpi
     dup1 __FUNC_SIG(submit)    eq submit     jumpi
     dup1 __FUNC_SIG(isSolved)  eq is_solved  jumpi
@@ -64,6 +65,8 @@
 
     borrow:
         BORROW(bubble_fail)
+    enter:
+        ENTER()
     start_loan:
         START_LOAN(bubble_fail)
     submit:
@@ -359,8 +362,19 @@
 
     // Revert if `transfer` call failed
     iszero <fail> jumpi      // [token]
-    
+
     stop
+}
+
+/// @notice Hashes together `msg.sender` and `address(this)`
+/// and sets the result at the location of the mutex.
+/// TODO: note the exact serialization of the input
+#define macro ENTER() = {
+    caller 0x00 mstore       // []
+    address 0x20 mstore      // []
+    0x40 0x00 sha3           // [digest]
+    // tstore
+    [MUTEX] sstore           // []
 }
 
 /// @notice Performs a delegate call to the contract in cd[0x04:0x18] if
@@ -418,7 +432,7 @@
     stop
 }
 
-/// @notice Submit your entire balance of the mock ERC-20 token to receive an award 
+/// @notice Submit your entire balance of the mock ERC-20 token to receive an award
 /// @param `fail` Jump label pointing to failure logic in the `MAIN` macro
 #define macro SUBMIT_TOKENS(fail) = {
     // Ensure there is no outstanding loan
@@ -463,5 +477,5 @@
 
     sload                    // [has_solved]
     0x00 mstore              // []
-    0x20 0x00 return         
+    0x20 0x00 return
 }

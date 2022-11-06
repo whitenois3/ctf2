@@ -12,14 +12,18 @@ contract Token is ERC20 {
     /// attempts to mint tokens.
     error NotTheMinter();
 
+    modifier onlyMinter() {
+        if (msg.sender != minter) {
+            revert NotTheMinter();
+        }
+        _;
+    }
+
     constructor(string memory name, string memory symbol, uint8 decimals) ERC20(name, symbol, decimals) {
         minter = msg.sender;
     }
 
-    function mint(address _to, uint256 _amount) external {
-        if (msg.sender != minter) {
-            revert NotTheMinter();
-        }
+    function mint(address _to, uint256 _amount) external onlyMinter {
         _mint(_to, _amount);
     }
 }

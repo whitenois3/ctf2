@@ -3,6 +3,7 @@ pragma solidity ^0.8.17;
 import { ITransientLoan } from "../../src/interfaces/ITransientLoan.sol";
 import { IFlashLoanReceiver } from "../../src/interfaces/IFlashLoanReceiver.sol";
 import { Token } from "../../src/Token.sol";
+import { Constants } from "../utils/Constants.sol";
 
 /// @notice A no-frills flash loan receiver
 contract MockBaseBorrower is IFlashLoanReceiver {
@@ -49,6 +50,6 @@ contract MockBaseBorrower is IFlashLoanReceiver {
     /// @notice `IFlashLoanReceiver` implementation
     function bankroll() external {
         // Borrow some of the mock token
-        borrow(address(mockToken), 1000, address(this), doRepay);
+        borrow(address(mockToken), Constants.MAX_BORROW, address(this), doRepay);
     }
 }

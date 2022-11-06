@@ -28,11 +28,6 @@
 /// @notice Transient storage slot for the reentrancy mutex
 #define constant MUTEX = FREE_STORAGE_POINTER()
 
-/// @notice The slot for the length of the `borrows` array in transient storage
-/// @dev The `borrows` array contains elements that are 64 bytes in size. The first
-/// slot begins at this value + 1.
-#define constant BORROWS = FREE_STORAGE_POINTER()
-
 /// @notice "Not the borrower!" string.
 /// @dev The length of the string (17 bytes) is prepended to the contents of the string.
 /// Store at 1 byte before the desired destination of the string contents in memory.
@@ -43,8 +38,8 @@
 /// Store at 1 byte before the desired destination of the string contents in memory.
 #define constant REPAY_DEBT = 0x10526570617920796f7572206465627421
 
-/// @notice The maximum borrow (1000 wei)
-#define constant MAX_BORROW = 0x3E8
+/// @notice The maximum borrow (10 wei)
+#define constant MAX_BORROW = 0x0A
 
 /// @notice A 4 byte mask
 #define constant FOUR_BYTE_MASK = 0xFFFFFFFF
@@ -153,7 +148,7 @@
     // Return stack:            []
 }
 
-/// @notice Reverts with the `OubstandingDebt(string)` error if the condition
+/// @notice Reverts with the `ExceedsLoanThreshold()` error if the condition
 /// is false.
 #define macro ASSERT_LOAN_THRESHOLD() = takes (1) {
     // Input stack:          // [condition]
@@ -173,7 +168,7 @@
     // Return stack:            []
 }
 
-/// @notice Reverts with the `OubstandingDebt(string)` error if the condition
+/// @notice Reverts with the `NoReentrancy()` error if the condition
 /// is false.
 #define macro ASSERT_NO_REENTRANCY() = takes (1) {
     // Input stack:          // [condition]
@@ -183,6 +178,26 @@
     // Store error selector and revert string in mem[0x1C:0x20]
     // NoReentrancy()
     0x583fe886               // [error_selector]
+    0x00 mstore              // []
+
+    // Revert with custom error
+    0x04 0x1C revert
+
+    do_not_throw:
+
+    // Return stack:            []
+}
+
+/// @notice Reverts with the `ErroniousMutexUnlock()` error if the condition
+/// is false.
+#define macro ASSERT_NO_MUTEX_UPDATE() = takes (1) {
+    // Input stack:          // [condition]
+
+    do_not_throw jumpi       // []
+
+    // Store error selector and revert string in mem[0x1C:0x20]
+    // ErroniousMutexUnlock()
+    0x6f490399               // [error_selector]
     0x00 mstore              // []
 
     // Revert with custom error
@@ -248,15 +263,16 @@
     iszero <fail> jumpi      // []
 
     // TODO: tload
-    [BORROWS] sload          // [num_borrows]
-    0x02                     // [slot_idx, num_borrows]
+    timestamp sload          // [num_borrows]
+    timestamp 0x01 add       // [slot_idx, num_borrows]
     debt_collector:
         // Complete loop if all `Borrow`s have been accounted for.
         // We check at the beginning of the loop rather than the end in case 0 borrows have been
         // taken out.
         dup1                 // [slot_idx, slot_idx, num_borrows]
         dup3 0x01 shl        // [num_borrows * 0x02, slot_idx, slot_idx, num_borrows]
-        0x02 add             // [num_borrows * 0x02 + 0x02, slot_idx, slot_idx, num_borrows]
+        timestamp 0x01 add   // [timestamp + 0x01, num_borrows * 0x02, slot_idx, slot_idx, num_borrows]
+        add                  // [timestamp + 0x01 + num_borrows * 0x02, slot_idx, slot_idx, num_borrows]
         eq debt_collected jumpi
 
         // Get the `Borrow` struct from transient storage at slot_idx
@@ -310,10 +326,10 @@
 
     // Update number of borrows
     // TODO: tload / tstore
-    [BORROWS] sload          // [len(borrows), amount, token, to]
+    timestamp sload          // [len(borrows), amount, token, to]
     dup1                     // [len(borrows), len(borrows), amount, token, to]
     0x01 add                 // [len(borrows) + 0x01, len(borrows), amount, token, to]
-    [BORROWS] sstore         // [len(borrows), amount, token, to]
+    timestamp sstore         // [len(borrows), amount, token, to]
 
     // Get the start of the next available `Borrow` slot (64 bytes each)
     0x01 shl                 // [0x02 * len(borrows), amount, token, to]
@@ -371,29 +387,41 @@
     // Ensure that the calling address is the current transient borrower
     // TODO: tload
     [MUTEX] sload            // [mutex]
-    caller eq                // [mutex == caller]
-    ASSERT_BORROWER()        // []
+    dup1                     // [mutex, mutex]
+    caller eq                // [mutex == caller, mutex]
+    ASSERT_BORROWER()        // [mutex]
 
-    0x04 calldataload        // [address << 0x60]
-    0x60 shr                 // [address]
+    0x04 calldataload        // [address << 0x60, mutex]
+    0x60 shr                 // [address, mutex]
 
-    returndatasize           // [0x00, address]
-    returndatasize           // [0x00, 0x00, address]
-    returndatasize           // [0x00, 0x00, 0x00, address]
-    returndatasize           // [0x00, 0x00, 0x00, 0x00, address]
-    swap4                    // [address, 0x00, 0x00, 0x00, 0x00]
+    returndatasize           // [0x00, address, mutex]
+    returndatasize           // [0x00, 0x00, address, mutex]
+    returndatasize           // [0x00, 0x00, 0x00, address, mutex]
+    returndatasize           // [0x00, 0x00, 0x00, 0x00, address, mutex]
+    swap4                    // [address, 0x00, 0x00, 0x00, 0x00, mutex]
     // TODO: Determine exact gas limit for the delegate call + 2 push ops and a tstore
     // It's super important that we update this value before deployment- otherwise,
     // attackers will be able to update persistent storage here.
-    0x1000                   // [gas, address, 0x00, 0x00, 0x00, 0x00]
-    delegatecall             // [success]
-    iszero <fail> jumpi      // []
+    0x1000                   // [gas, address, 0x00, 0x00, 0x00, 0x00, mutex]
+    delegatecall             // [success, mutex]
+    iszero <fail> jumpi      // [mutex]
+
+    // Ensure that the mutex was not updated by the delegate call!
+    // This is to prevent people from calling `submit` with loaned funds- they
+    // must own them outright.
+    // TODO: tload
+    [MUTEX] sload eq         // [mutex == mutex]
+    ASSERT_NO_MUTEX_UPDATE() // []
 
     stop
 }
 
 /// @notice Submit your entire balance of the mock ERC-20 token to receive an award 
 #define macro SUBMIT_TOKENS(fail) = {
+    // Ensure there is no outstanding loan
+    [MUTEX] sload iszero     // [mutex == 0]
+    ASSERT_BALANCE()         // []
+
     // Get the caller's balance of the token and construct `transferFrom` params
     [TOKEN] caller           // [msg.sender, token]
     BALANCE_OF(0x60)         // [success]
@@ -412,7 +440,7 @@
     // Get the persistent storage slot for the caller
     // Rarely seen use of `true`/`false` keywords in Huff o.e
     true                     // [0x01]
-    caller 0x00 mstore       // [0x01]
+    origin 0x00 mstore       // [0x01]
     0x20 0x00 sha3           // [keccak256(msg.sender), 0x01]
     sstore                   // []
 

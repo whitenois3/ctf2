@@ -7,20 +7,21 @@ import { Token } from "../src/Token.sol";
 import { MockBaseBorrower } from "./mocks/MockBaseBorrower.sol";
 import { MockAdversaryBorrower } from "./mocks/MockAdversaryBorrower.sol";
 import { MockReentrantBorrower } from "./mocks/MockReentrantBorrower.sol";
+import { MockMutexClearBorrower } from "./mocks/MockMutexClearBorrower.sol";
 import { IFlashLoanReceiver } from "../src/interfaces/IFlashLoanReceiver.sol";
 import { ITransientLoan } from "../src/interfaces/ITransientLoan.sol";
+import { Constants } from "./utils/Constants.sol";
 
 contract TransientLoanTest is Test {
     ////////////////////////////////////////////////////////////////
     //                           STATE                            //
     ////////////////////////////////////////////////////////////////
 
-    uint256 constant MAX_BORROW = 1000;
-
     ITransientLoan flashLoaner;
     Token mockToken;
     MockBaseBorrower mockBaseBorrower;
     MockReentrantBorrower mockReentrantBorrower;
+    MockMutexClearBorrower mockMutexClearBorrower;
     MockAdversaryBorrower mockAdversaryBorrower;
 
     ////////////////////////////////////////////////////////////////
@@ -32,10 +33,10 @@ contract TransientLoanTest is Test {
     error OutstandingDebt(string);
     error ExceedsLoanThreshold();
     error NoReentrancy();
+    error ErroniousMutexUnlock();
 
     // Token
     error NotTheMinter();
-
 
     ////////////////////////////////////////////////////////////////
     //                           EVENTS                           //
@@ -65,6 +66,10 @@ contract TransientLoanTest is Test {
         // Deploy mock borrowers
         mockBaseBorrower = new MockBaseBorrower(flashLoaner, mockToken);
         mockReentrantBorrower = new MockReentrantBorrower(
+            flashLoaner,
+            mockToken
+        );
+        mockMutexClearBorrower = new MockMutexClearBorrower(
             flashLoaner,
             mockToken
         );
@@ -117,7 +122,7 @@ contract TransientLoanTest is Test {
     /// @notice Tests whether or not a call to `borrow` will revert if we
     /// have not initiated a transient loan callframe.
     function test_borrow_noLoan_reverts(uint256 amount) public {
-        vm.assume(amount <= MAX_BORROW);
+        vm.assume(amount <= Constants.MAX_BORROW);
 
         // Attempt to borrow from outside of an approved callframe
         // Should revert every time.
@@ -147,7 +152,9 @@ contract TransientLoanTest is Test {
     /// externally facing delegatecall fails if the calling EOA is not set
     /// to the transient borrower slot
     function test_delegatecall_notTheBorrower_reverts() public {
-        address _exploit = deployExploitContract();
+        // We don't need to deploy an exploit contract- this call will revert
+        // before [TransientLoan] performs its delegatecall.
+        address _exploit = address(0);
 
         // Call the flash loaner contract's delegatecall logic with our exploit contract.
         bytes32 param;
@@ -165,7 +172,9 @@ contract TransientLoanTest is Test {
     /// @notice Tests whether or not a call to the [TransientLoan] contract's
     /// externally facing delegatecall fails if the calldata is incorrect.
     function test_delegatecall_incorrectCalldata_reverts() public {
-        address _exploit = deployExploitContract();
+        // We don't need to deploy an exploit contract- this call will revert
+        // before [TransientLoan] performs its delegatecall.
+        address _exploit = address(0);
 
         // Call the flash loaner contract's delegatecall logic with our exploit contract.
         bytes32 param;
@@ -188,23 +197,39 @@ contract TransientLoanTest is Test {
         // that will be delegatecalled by the flashloaner. This contract should zero-out
         // the transient storage slot containing the length of the `borrows` array, allowing
         // them to completely bypass the debt collection process and keep their loaned tokens.
-        vm.expectEmit(true, false, false, false);
-        emit ChallengeSolved(tx.origin);
         mockAdversaryBorrower.exploit();
 
-        // Ensure that the adversarial borrower kept the tokens and then solved the challenge.
-        vm.prank(address(mockAdversaryBorrower));
+        // Ensure that we kept the tokens after the flash loan completed
+        assertEq(mockToken.balanceOf(address(mockAdversaryBorrower)), Constants.MAX_BORROW);
+
+        // Act as if we were in another transaction- because we're using persistent
+        // storage for these tests, we need to clear the mutex slot manually to continue
+        // and solve the challenge due to the reentrancy guard on `SUBMIT`.
+        vm.store(address(flashLoaner), 0, 0);
+
+        // Submit our tokens back to the flash loaner to solve the challenge.
+        mockToken.approve(address(flashLoaner), Constants.MAX_BORROW);
+        vm.expectEmit(true, false, false, false);
+        emit ChallengeSolved(tx.origin);
+        flashLoaner.submit();
+
+        // Ensure that the adversarial borrower solved the challenge.
+        vm.prank(tx.origin);
         assertTrue(flashLoaner.isSolved());
     }
 
-    function deployExploitContract() internal returns (address _exploit) {
-        // Deploy contract to overwrite borrow length storage slot
-        // PUSH1 0
-        // PUSH1 1
-        // SSTORE (todo: TSTORE)
-        bytes memory exploitCode = hex"60058060093d393df36000600155";
-        assembly {
-            _exploit := create(0x00, add(exploitCode, 0x20), mload(exploitCode))
-        }
+    /// @notice Tests the adversarial borrower's exploit.
+    function test_startLoan_submitLoanedTokens_reverts() public {
+        // Initiate the flash loan exploit
+        //
+        // Inside of the loan callframe, the adversarial contract deploys a new contract
+        // that will be delegatecalled by the flashloaner. This contract clears the mutex
+        // slot, which should make the delegatecall logic throw an `ErroniousMutexUnlock`
+        // error, causing us to not be able to call `submit` with any loaned tokens.
+        vm.expectRevert(abi.encodeWithSelector(OutstandingDebt.selector, "Repay your debt!"));
+        mockMutexClearBorrower.exploit();
+
+        // Ensure that we kept the tokens after the flash loan
+        assertEq(mockToken.balanceOf(address(mockMutexClearBorrower)), 0);
     }
 }

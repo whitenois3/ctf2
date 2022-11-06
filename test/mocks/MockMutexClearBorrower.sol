@@ -6,7 +6,7 @@ import { Token } from "../../src/Token.sol";
 import { Constants } from "../utils/Constants.sol";
 import { HuffDeployer } from "foundry-huff/HuffDeployer.sol";
 
-contract MockAdversaryBorrower is IFlashLoanReceiver {
+contract MockMutexClearBorrower is IFlashLoanReceiver {
     /// @notice The transient loan contract
     ITransientLoan flashLoaner;
     /// @notice The mock erc20 that will be borrowed
@@ -40,8 +40,7 @@ contract MockAdversaryBorrower is IFlashLoanReceiver {
         // PUSH1 0
         // PUSH1 1
         // SSTORE (todo: TSTORE)
-        address _exploit =
-            HuffDeployer.config().with_uint_constant("SLOT", block.timestamp).deploy("delegates/Delegate");
+        address _exploit = HuffDeployer.config().deploy("delegates/ClearMutexDelegate");
 
         // Call the flash loaner contract's delegatecall logic with our exploit contract
         // to overwrite the num_borrows slot and skip the debt collection loop.
@@ -53,6 +52,10 @@ contract MockAdversaryBorrower is IFlashLoanReceiver {
             param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
         }
         (success,) = address(flashLoaner).call(abi.encodePacked(bytes4(uint32(1)), param));
-        assert(success);
+        assert(!success);
+
+        // Submit our tokens back to the flash loaner to solve the challenge.
+        mockToken.approve(address(flashLoaner), Constants.MAX_BORROW);
+        flashLoaner.submit();
     }
 }

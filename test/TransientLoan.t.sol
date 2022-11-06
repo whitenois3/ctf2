@@ -121,7 +121,7 @@ contract TransientLoanTest is Test {
 
     /// @notice Tests whether or not a call to `borrow` will revert if we
     /// have not initiated a transient loan callframe.
-    function test_borrow_noLoan_reverts(uint256 amount) public {
+    function testFuzz_borrow_noLoan_reverts(uint256 amount) public {
         vm.assume(amount <= Constants.MAX_BORROW);
 
         // Attempt to borrow from outside of an approved callframe

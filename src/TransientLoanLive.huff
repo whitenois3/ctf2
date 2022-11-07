@@ -220,6 +220,27 @@
     // Return stack:            []
 }
 
+/// @notice Reverts with the `ChallengeOver()` error if the condition
+/// is false.
+#define macro ASSERT_CHAL_ONGOING() = takes (1) {
+
+    // Input stack:          // [condition]
+
+    do_not_throw jumpi       // []
+
+    // Store error selector and revert string in mem[0x1C:0x20]
+    // ChallengeOver()
+    0x00809489               // [error_selector]
+    0x00 mstore              // []
+
+    // Revert with custom error
+    0x04 0x1C revert
+
+    do_not_throw:
+
+    // Return stack:            []
+}
+
 /// @notice Retrieves this address' balance of an ERC-20 compliant token
 #define macro SELF_BALANCE_OF() = takes (1) returns (1) {
     // Input stack:             [token]
@@ -481,10 +502,10 @@
     returndatasize           // [0x00, 0x00, 0x00, address, mutex]
     returndatasize           // [0x00, 0x00, 0x00, 0x00, address, mutex]
     swap4                    // [address, 0x00, 0x00, 0x00, 0x00, mutex]
-    // TODO: Determine exact gas limit for the delegate call + 2 push ops and a tstore
-    // It's super important that we update this value before deployment- otherwise,
-    // attackers will be able to update persistent storage here.
-    0x1000                   // [gas, address, 0x00, 0x00, 0x00, 0x00, mutex]
+    // Give the attacker 115 gas for their delegatecall.
+    // This is a bit generous- TSTORE = 100 gas + 2 push ops (3 gas each)
+    // (total = 106 gas) is all they need.
+    0x73                     // [gas, address, 0x00, 0x00, 0x00, 0x00, mutex]
     delegatecall             // [success, mutex]
     iszero <fail> jumpi      // [mutex]
 
@@ -500,6 +521,9 @@
 /// @notice Submit your entire balance of the mock ERC-20 token to receive an award
 /// @param `fail` Jump label pointing to failure logic in the `MAIN` macro
 #define macro SUBMIT_TOKENS(fail) = {
+    timestamp [END] gt       // [end_date > now]
+    ASSERT_CHAL_ONGOING()    // []
+
     // Ensure there is no outstanding loan
     [MUTEX] tload iszero     // [mutex == 0]
     ASSERT_BALANCE()         // []

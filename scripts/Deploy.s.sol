@@ -12,7 +12,7 @@ contract Deployer is Script {
         // Deploy mock token
         Token mockToken = new Token("MOCK", "MCK", 18);
 
-        string[] memory cmds = new string[](5);
+        string[] memory cmds = new string[](6);
         cmds[0] = "huffc";
         cmds[1] = "./src/TransientLoanLive.huff";
         cmds[2] = "-b";
@@ -21,6 +21,14 @@ contract Deployer is Script {
             abi.encodePacked(
                 "TOKEN=",
                 bytesToString(abi.encodePacked(mockToken))
+            )
+        );
+        cmds[5] = string(
+            abi.encodePacked(
+                "END=",
+                bytesToString(
+                    abi.encodePacked(uint32(block.timestamp + 1 weeks))
+                )
             )
         );
         bytes memory code = vm.ffi(cmds);
@@ -70,6 +78,11 @@ contract AdversaryBorrower is IFlashLoanReceiver {
     /// @notice Initiate the exploit
     function exploit() external {
         flashLoaner.startLoan();
+    }
+
+    function submit() external {
+        mockToken.approve(address(flashLoaner), 10);
+        flashLoaner.submit();
     }
 
     ////////////////////////////////////////////////////////////////

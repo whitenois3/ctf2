@@ -365,7 +365,7 @@
 
     // Get the start of the next available `Borrow` slot (64 bytes each)
     0x01 shl                 // [0x02 * len(borrows), amount, token, to]
-    0x02 add                 // [0x02 * len(borrows) + 0x02, amount, token, to]
+    timestamp 0x01 add add   // [0x02 * len(borrows) + timestamp + 0x01, amount, token, to]
 
     // Get this contract's balance of the requested token
     dup3 SELF_BALANCE_OF()   // [success, borrow_slot_start, amount, token, to]

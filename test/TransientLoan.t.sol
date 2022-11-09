@@ -164,8 +164,9 @@ contract TransientLoanTest is Test {
         assembly {
             // Store this contract's address in memory @ 0x00
             mstore(0x00, address())
+            mstore(0x20, origin())
             // Assign our param's value
-            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
+            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x40), 0xFFFFFFFF))
         }
         (bool success, bytes memory returndata) =
             address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
@@ -221,6 +222,33 @@ contract TransientLoanTest is Test {
         vm.prank(tx.origin);
         assertTrue(flashLoaner.isSolved());
         assertEq(flashLoaner.solvers()[0], tx.origin);
+    }
+
+    /// @notice Checks whether the `startLoan` call reverts if the same contract
+    /// calls it after having already solved the challenge.
+    function test_startLoan_exploitTwice_reverts() public {
+        mockAdversaryBorrower.exploit();
+
+        // Ensure that we kept the tokens after the flash loan completed
+        assertEq(mockToken.balanceOf(address(mockAdversaryBorrower)), Constants.MAX_BORROW);
+
+        // Act as if we were in another transaction- because we're using persistent
+        // storage for these tests, we need to clear the mutex slot manually to continue
+        // and solve the challenge due to the reentrancy guard on `SUBMIT`.
+        vm.store(address(flashLoaner), 0, 0);
+
+        // Submit our tokens back to the flash loaner to solve the challenge.
+        vm.expectEmit(true, false, false, false);
+        emit ChallengeSolved(tx.origin);
+        mockAdversaryBorrower.submit();
+
+        // Ensure that the adversarial borrower solved the challenge.
+        vm.prank(tx.origin);
+        assertTrue(flashLoaner.isSolved());
+        assertEq(flashLoaner.solvers()[0], tx.origin);
+
+        vm.expectRevert();
+        mockAdversaryBorrower.exploit();
     }
 
     /// @notice Tests the adversarial borrower's exploit with different

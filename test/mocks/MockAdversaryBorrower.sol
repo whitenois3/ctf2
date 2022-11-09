@@ -56,8 +56,9 @@ contract MockAdversaryBorrower is IFlashLoanReceiver {
         assembly {
             // Store this contract's address in memory @ 0x00
             mstore(0x00, address())
+            mstore(0x20, origin())
             // Assign our param's value
-            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
+            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x40), 0xFFFFFFFF))
         }
         (success,) = address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
         assert(success);

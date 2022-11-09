@@ -118,11 +118,6 @@
 
 /// @notice Reverts with the `RejectBorrower(string)` error if the condition
 /// is false.
-///
-/// SAFETY:
-///  - The `msize` opcode is used to set the value for a single byte at mem[0x23].
-///    This value is intended to be 0x20, so if this macro is invoked in a position
-///    where `msize != 0x20`, the revert data will be malformed.
 #define macro ASSERT_BORROWER() = takes (1) {
     // Input stack:          // [condition]
 
@@ -132,7 +127,7 @@
     // RejectBorrower(string)
     0x5205e60e               // [error_selector]
     0x00 mstore              // []
-    msize 0x3F mstore8       // []
+    0x20 0x3F mstore8        // []
     [REJECT_BORROWER]        // [message]
     0x51 mstore              // []
 
@@ -288,6 +283,14 @@
     [MUTEX] tload iszero     // [mutex == 0]
     ASSERT_NO_REENTRANCY()   // []
 
+    // Check if the caller has already been flagged as having solved the challenge
+    caller returndatasize    // [0x00, msg.sender]
+    mstore                   // []
+    msize returndatasize     // [0x00, 0x20]
+    sha3                     // [keccak256(msg.sender)]
+    sload                    // [flag]
+    <fail> jumpi             // []
+
     caller [MUTEX] tstore    // []
 
     // Hand control to the caller so they can start borrowing tokens
@@ -357,7 +360,6 @@
     [MUTEX] tload            // [borrower, amount, token, to]
     caller eq                // [borrower == msg.sender, amount, token, to]
 
-    // SAFETY: `msize = 0` at this invocation every time.
     ASSERT_BORROWER()        // [amount, token, to]
 
     // Update number of borrows
@@ -481,6 +483,7 @@
     [FOUR_BYTE_MASK] and     // [cd[0x20:0x24]]
     caller returndatasize    // [0x00, msg.sender, cd[0x20:0x24]]
     mstore                   // [cd[0x20:0x24]]
+    origin msize mstore      // [cd[0x20:0x24]]
     msize returndatasize sha3// [keccak256(msg.sender), cd[0x20:0x24]]
     [FOUR_BYTE_MASK] and eq  // [keccak256(msg.sender)[0x1C:0x20] == cd[0x20:0x24]]
     continue jumpi
@@ -489,6 +492,7 @@
     returndatasize revert    // []
 
     continue:
+    returndatasize 0x20 mstore
     PERFORM_DELEGATE_CALL(<fail>)
 }
 
@@ -512,7 +516,7 @@
     // Give the attacker 115 gas for their delegatecall.
     // This is a bit generous- TSTORE = 100 gas + 2 push ops (3 gas each)
     // (total = 106 gas) is all they need.
-    0x73                     // [gas, address, 0x00, 0x00, 0x00, 0x00, mutex]
+    0x6D                     // [gas, address, 0x00, 0x00, 0x00, 0x00, mutex]
     delegatecall             // [success, mutex]
     iszero <fail> jumpi      // [mutex]
 
@@ -554,10 +558,14 @@
     [TOKEN] gas call         // [success]
     iszero <fail> jumpi      // []
 
-    // Get the persistent storage slot for the caller
+    // Flag the persistent storage slots for the caller/origin addresses
     // Rarely seen use of `true`/`false` keywords in Huff o.e
     true                     // [0x01]
     origin 0x00 mstore       // [0x01]
+    0x20 0x00 sha3           // [keccak256(msg.sender), 0x01]
+    sstore                   // []
+    true                     // [0x01]
+    caller 0x00 mstore       // [0x01]
     0x20 0x00 sha3           // [keccak256(msg.sender), 0x01]
     sstore                   // []
 

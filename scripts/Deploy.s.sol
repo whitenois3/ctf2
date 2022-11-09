@@ -10,7 +10,7 @@ contract Deployer is Script {
         vm.startBroadcast();
 
         // Deploy mock token
-        Token mockToken = new Token("MOCK", "MCK", 18);
+        Token mockToken = new Token("DOVE", "DOVE", 18);
 
         string[] memory cmds = new string[](6);
         cmds[0] = "huffc";

@@ -25,4 +25,7 @@ interface ITransientLoan {
 
     /// @notice Check whether or not the calling EOA has solved the challenge.
     function isSolved() external view returns (bool);
+
+    /// @notice Get an array of EOAs that have solved the challenge.
+    function solvers() external view returns (address[] memory);
 }

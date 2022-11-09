@@ -22,6 +22,12 @@ contract MockAdversaryBorrower is IFlashLoanReceiver {
         flashLoaner.startLoan();
     }
 
+    /// @notice Submit captured tokens
+    function submit() external {
+        mockToken.approve(address(flashLoaner), type(uint256).max);
+        flashLoaner.submit();
+    }
+
     ////////////////////////////////////////////////////////////////
     //                  IFlashLoanReceiver impl                   //
     ////////////////////////////////////////////////////////////////

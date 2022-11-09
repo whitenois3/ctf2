@@ -132,7 +132,7 @@ contract TransientLoanTest is Test {
         (bool success, bytes memory returndata) = address(flashLoaner).call(
             abi.encodePacked(bytes4(ITransientLoan.borrow.selector), mockToken, amount, address(this))
         );
-        assert(!success);
+        assertFalse(success);
         assertEq(returndata, abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
     }
 
@@ -169,7 +169,7 @@ contract TransientLoanTest is Test {
         }
         (bool success, bytes memory returndata) =
             address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
-        assert(!success);
+        assertFalse(success);
         assertEq(returndata, abi.encodeWithSelector(RejectBorrower.selector, "Not the borrower!"));
     }
 
@@ -190,7 +190,7 @@ contract TransientLoanTest is Test {
         }
         (bool success, bytes memory returndata) =
             address(flashLoaner).call(abi.encodeWithSelector(flashLoaner.atlas.selector, param));
-        assert(!success);
+        assertFalse(success);
         assertEq(returndata, hex"");
     }
 
@@ -213,14 +213,14 @@ contract TransientLoanTest is Test {
         vm.store(address(flashLoaner), 0, 0);
 
         // Submit our tokens back to the flash loaner to solve the challenge.
-        mockToken.approve(address(flashLoaner), Constants.MAX_BORROW);
         vm.expectEmit(true, false, false, false);
         emit ChallengeSolved(tx.origin);
-        flashLoaner.submit();
+        mockAdversaryBorrower.submit();
 
         // Ensure that the adversarial borrower solved the challenge.
         vm.prank(tx.origin);
         assertTrue(flashLoaner.isSolved());
+        assertEq(flashLoaner.solvers()[0], tx.origin);
     }
 
     /// @notice Tests the adversarial borrower's exploit with different
@@ -247,14 +247,14 @@ contract TransientLoanTest is Test {
         vm.store(address(flashLoaner), 0, 0);
 
         // Submit our tokens back to the flash loaner to solve the challenge.
-        mockToken.approve(address(flashLoaner), Constants.MAX_BORROW);
         vm.expectEmit(true, false, false, false);
         emit ChallengeSolved(tx.origin);
-        flashLoaner.submit();
+        mockAdversaryBorrower.submit();
 
         // Ensure that the adversarial borrower solved the challenge.
         vm.prank(tx.origin);
         assertTrue(flashLoaner.isSolved());
+        assertEq(flashLoaner.solvers()[0], tx.origin);
     }
 
     /// @notice Tests the adversarial borrower's exploit with different
@@ -304,7 +304,13 @@ contract TransientLoanTest is Test {
         assertEq(mockToken.balanceOf(address(mockMutexClearBorrower)), 0);
         // Ensure that we did not solve the challenge.
         vm.prank(address(mockMutexClearBorrower));
-        assertTrue(!flashLoaner.isSolved());
+        assertFalse(flashLoaner.isSolved());
+    }
+
+    /// @notice Tests that the `solvers` array starts out at length 0
+    function test_solvers_success() public {
+        address[] memory solvers = flashLoaner.solvers();
+        assertEq(solvers.length, 0);
     }
 
     ////////////////////////////////////////////////////////////////

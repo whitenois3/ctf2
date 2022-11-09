@@ -12,6 +12,7 @@
 #define function borrow(address token, uint256 amount, address to) nonpayable returns ()
 #define function submit() nonpayable returns ()
 #define function isSolved() nonpayable returns (bool)
+#define function solvers() nonpayable returns ()
 #define function enter() nonpayable returns ()
 #define function write(bytes32, bytes32) nonpayable returns ()
 /// @dev The signature is meant to throw attackers off- this function only takes
@@ -32,6 +33,9 @@
 
 /// @notice Transient storage slot for the reentrancy mutex
 #define constant MUTEX = FREE_STORAGE_POINTER()
+
+/// @notice The length slot for the `solvers` array
+#define constant SOLVERS_LEN = 0x736F6C76657273
 
 /// @notice "Not the borrower!" string.
 /// @dev The length of the string (17 bytes) is prepended to the contents of the string.
@@ -65,6 +69,7 @@
     dup1 __FUNC_SIG(atlas)     eq delegate   jumpi
     dup1 __FUNC_SIG(submit)    eq submit     jumpi
     dup1 __FUNC_SIG(isSolved)  eq is_solved  jumpi
+    dup1 __FUNC_SIG(solvers)   eq solvers    jumpi
 
     // Revert if no selectors matched
     returndatasize returndatasize revert
@@ -83,6 +88,8 @@
         SUBMIT_TOKENS(bubble_fail)
     is_solved:
         IS_SOLVED()
+    solvers:
+        SOLVERS()
     bubble_fail:
         // Bubble up revert message from returndata (if there is any)
         returndatasize       // [returndatasize]
@@ -542,6 +549,10 @@
     BALANCE_OF(0x60)         // [success]
     iszero <fail> jumpi      // []
 
+    // Revert if the caller has no tokens to give 
+    0x60 mload               // [balance]
+    iszero <fail> jumpi      // []
+
     __FUNC_SIG(transferFrom) // [transferFrom_sig]
     0x00 mstore              // []
     caller 0x20 mstore       // []
@@ -557,6 +568,15 @@
     true                     // [0x01]
     origin 0x00 mstore       // [0x01]
     0x20 0x00 sha3           // [keccak256(msg.sender), 0x01]
+    sstore                   // []
+
+    // Update the `solvers` array in persistent storage
+    [SOLVERS_LEN] sload      // [len(solvers)]
+    0x01 add                 // [len(solvers) + 1]
+    dup1                     // [len(solvers) + 1, len(solvers) + 1]
+    [SOLVERS_LEN] sstore     // [len(solvers) + 1]
+    origin swap1             // [len(solvers) + 1, tx.origin]
+    [SOLVERS_LEN] add        // [SOLVERS_SLOT + len(solvers) + 1, tx.origin]
     sstore                   // []
 
     // Emit the `ChallengeSolved` event for indexing
@@ -576,4 +596,27 @@
     sload                    // [has_solved]
     0x00 mstore              // []
     0x20 0x00 return
+}
+
+/// @notice Get an array of all solvers of the challenge
+#define macro SOLVERS() = {
+    0x20 returndatasize      // [0x00, 0x20]
+    mstore                   // []
+    [SOLVERS_LEN] sload      // [len(solvers)]
+    dup1 msize               // [0x00, len(solvers), len(solvers)]
+    mstore                   // [len(solvers)]
+
+    [SOLVERS_LEN] add        // [final_slot]
+    [SOLVERS_LEN] 0x01 add   // [slot, final_slot]
+    loop:
+        dup2 dup2 gt         // [slot > final_slot, slot, final_slot]
+        end jumpi            // [slot, final_slot]
+        
+        dup1 sload           // [solver, slot, final_slot]
+        msize mstore         // [slot, final_slot]
+
+        0x01 add             // [slot + 1, final_slot]
+        loop jump            // [slot + 1, final_slot]
+    end:
+        msize returndatasize return
 }

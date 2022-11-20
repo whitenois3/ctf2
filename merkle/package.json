@@ -1,0 +1,11 @@
+{
+  "name": "merkle",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "ethers": "^5.7.2",
+    "merkletreejs": "^0.3.8"
+  }
+}
